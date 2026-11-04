@@ -862,5 +862,3 @@ VOICEGUARD - AUDIO INSPECTION REPORT
 
 File name: {uploaded_file.name if uploaded_file else "Previously analysed file"}
 Inspection date: {current_time}
-
-A
