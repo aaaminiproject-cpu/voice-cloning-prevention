@@ -842,43 +842,46 @@ if st.session_state.analysis_result is not None:
     # FEATURE GRAPHS
     # =================================================
 
-    st.markdown("### 3. Audio Feature Analysis")
+    
+st.markdown("### 3. Audio Feature Analysis")
 
-    graph_col1, graph_col2 = st.columns(2)
+graph_col1, graph_col2 = st.columns(2)
 
-    with graph_col1:
+with graph_col1:
+    fig_centroid, ax_centroid = plt.subplots(figsize=(6, 3))
 
-        fig_centroid, ax_centroid = plt.subplots(
-            figsize=(6, 3)
-        )
+    ax_centroid.plot(
+        result["centroid_graph"],
+        linewidth=1
+    )
 
-        ax_centroid.plot(
-            result["centroid_graph"],
-            linewidth=1
-        )
+    ax_centroid.set_title("Spectral Centroid")
+    ax_centroid.set_xlabel("Frame")
+    ax_centroid.set_ylabel("Frequency (Hz)")
+    ax_centroid.grid(alpha=0.2)
 
-        ax_centroid.set_title("Spectral Centroid")
-        ax_centroid.set_xlabel("Frame")
-        ax_centroid.set_ylabel("Frequency (Hz)")
-        ax_centroid.grid(alpha=0.2)
+    st.pyplot(fig_centroid)
+    plt.close(fig_centroid)
 
-        st.pyplot(fig_centroid)
-        plt.close(fig_centroid)
+with graph_col2:
+    feature_names = [
+        "RMS Energy",
+        "Peak",
+        "Zero Crossing"
+    ]
 
-    with graph_col2:
+    feature_values = [
+        result["rms"],
+        result["peak"],
+        result["zero_crossing"]
+    ]
 
-        feature_names = [
-            "RMS Energy",
-            "Peak",
-            "Zero Crossing"
-        ]
+    fig_features, ax_features = plt.subplots(figsize=(6, 3))
 
-        feature_values = [
-            result["rms"],
-            result["peak"],
-            result["zero_crossing"]
-        ]
+    ax_features.bar(feature_names, feature_values)
+    ax_features.set_title("Audio Feature Measurements")
+    ax_features.tick_params(axis="x", rotation=15)
 
-        fig_features, ax_features = plt.subplots(
-            figsize=(6,
-
+    st.pyplot(fig_features)
+    plt.close(fig_features)
+    
