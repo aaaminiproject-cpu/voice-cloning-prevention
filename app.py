@@ -720,6 +720,7 @@ if uploaded_file is not None:
             )
 
 
+
 # =====================================================
 # ANALYSIS DASHBOARD
 # =====================================================
@@ -727,62 +728,39 @@ if uploaded_file is not None:
 if st.session_state.analysis_result is not None:
 
     result = st.session_state.analysis_result
-
     file_name = st.session_state.analysis_file_name
 
     st.markdown("---")
     st.markdown("## 📊 Voice Analysis Dashboard")
 
-    # Current inspection status
     st.markdown("### Current Inspection Status")
 
+    st.success("Audio inspection completed successfully.")
+
     st.info(
-        "Audio inspection completed. Signal measurements "
-        "and visual analysis are available. AI voice "
-        "classification is awaiting trained model integration."
+        "Signal analysis is complete. Voice classification "
+        "will be available after trained model integration."
     )
 
-    # Audio metrics
+    # AUDIO METRICS
+
     col1, col2, col3, col4 = st.columns(4)
 
-    col1.metric(
-        "Duration",
-        f"{result['duration']:.2f} sec"
-    )
-
-    col2.metric(
-        "Sample Rate",
-        f"{result['sample_rate']} Hz"
-    )
-
-    col3.metric(
-        "RMS Energy",
-        f"{result['rms']:.4f}"
-    )
-
-    col4.metric(
-        "Peak Amplitude",
-        f"{result['peak']:.4f}"
-    )
+    col1.metric("Duration", f"{result['duration']:.2f} sec")
+    col2.metric("Sample Rate", f"{result['sample_rate']} Hz")
+    col3.metric("RMS Energy", f"{result['rms']:.4f}")
+    col4.metric("Peak Amplitude", f"{result['peak']:.4f}")
 
     st.markdown("---")
 
-    # =================================================
     # WAVEFORM
-    # =================================================
 
     st.markdown("### 1. Audio Waveform")
-
-    st.write(
-        "This graph displays how the audio signal's "
-        "amplitude changes over time."
-    )
 
     signal = result["signal"]
     sr = result["sample_rate"]
 
     time_axis = np.arange(len(signal)) / sr
-
     step = max(1, len(signal) // 12000)
 
     fig_wave, ax_wave = plt.subplots(figsize=(12, 3))
@@ -802,6 +780,133 @@ if st.session_state.analysis_result is not None:
     plt.close(fig_wave)
 
     st.markdown("---")
+
+    # MEL SPECTROGRAM
+
+    st.markdown("### 2. Mel Spectrogram")
+
+    fig_mel, ax_mel = plt.subplots(figsize=(12, 4))
+
+    image = ax_mel.imshow(
+        result["mel_db"],
+        aspect="auto",
+        origin="lower",
+        interpolation="nearest"
+    )
+
+    ax_mel.set_title("Mel Spectrogram")
+    ax_mel.set_xlabel("Time Frames")
+    ax_mel.set_ylabel("Mel Frequency Bands")
+
+    fig_mel.colorbar(image, ax=ax_mel, format="%+2.0f dB")
+
+    st.pyplot(fig_mel)
+    plt.close(fig_mel)
+
+    st.markdown("---")
+
+    # AUDIO FEATURE ANALYSIS
+
+    st.markdown("### 3. Audio Feature Analysis")
+
+    graph_col1, graph_col2 = st.columns(2)
+
+    with graph_col1:
+
+        fig_centroid, ax_centroid = plt.subplots(figsize=(6, 3))
+
+        ax_centroid.plot(
+            result["centroid_graph"],
+            linewidth=1
+        )
+
+        ax_centroid.set_title("Spectral Centroid")
+        ax_centroid.set_xlabel("Frame")
+        ax_centroid.set_ylabel("Frequency (Hz)")
+        ax_centroid.grid(alpha=0.2)
+
+        st.pyplot(fig_centroid)
+        plt.close(fig_centroid)
+
+    with graph_col2:
+
+        feature_names = [
+            "RMS Energy",
+            "Peak",
+            "Zero Crossing"
+        ]
+
+        feature_values = [
+            result["rms"],
+            result["peak"],
+            result["zero_crossing"]
+        ]
+
+        fig_features, ax_features = plt.subplots(figsize=(6, 3))
+
+        ax_features.bar(feature_names, feature_values)
+        ax_features.set_title("Audio Feature Measurements")
+        ax_features.tick_params(axis="x", rotation=15)
+
+        st.pyplot(fig_features)
+        plt.close(fig_features)
+
+    st.markdown("---")
+
+    # INSPECTION REPORT
+
+    st.markdown("### 4. Inspection Report")
+
+    report_lines = [
+        "VOICEGUARD - AUDIO INSPECTION REPORT",
+        "====================================",
+        "",
+        f"File name: {file_name}",
+        f"Inspection date: {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}",
+        "",
+        "AUDIO INFORMATION",
+        "-----------------",
+        f"Sample rate: {result['sample_rate']} Hz",
+        f"Duration: {result['duration']:.3f} seconds",
+        f"RMS energy: {result['rms']:.6f}",
+        f"Peak amplitude: {result['peak']:.6f}",
+        f"Zero crossing rate: {result['zero_crossing']:.6f}",
+        f"Average spectral centroid: {result['spectral_centroid']:.2f} Hz",
+        "",
+        "Waveform: Generated",
+        "Mel spectrogram: Generated",
+        "Audio feature graphs: Generated",
+        "",
+        "Classification: Pending trained model integration",
+        "",
+        "This report contains audio measurements only.",
+        "It does not confirm whether the voice is genuine or AI-generated."
+    ]
+
+    report_text = "\n".join(report_lines)
+
+    st.text_area(
+        "Report Preview",
+        report_text,
+        height=300
+    )
+
+    st.download_button(
+        "📄 Download Inspection Report",
+        data=report_text,
+        file_name="voiceguard_inspection_report.txt",
+        mime="text/plain"
+    )
+
+else:
+
+    st.info(
+        "Upload an audio file and click Analyse Audio "
+        "to see the waveform, Mel spectrogram, graphs and report here."
+    )
+    
+
+
 
     # =================================================
     # MEL SPECTROGRAM
