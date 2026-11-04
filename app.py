@@ -207,36 +207,113 @@ footer {
 """, unsafe_allow_html=True)
 
 
-# ---------------- ROBOT IMAGE ----------------
 
-image_path = "voiceguard_robot.png"
+# ---------------- FLOATING MICROPHONE ----------------
 
-robot_html = ""
+robot_html = """
+<div class="robot-stage">
+    <div class="ring"></div>
+    <div class="ring two"></div>
 
-if os.path.exists(image_path):
-    with open(image_path, "rb") as image_file:
-        encoded = base64.b64encode(image_file.read()).decode()
-
-    robot_html = f"""
-    <div class="robot-stage">
-        <div class="ring"></div>
-        <div class="ring two"></div>
-        <img class="robot"
-             src="data:image/png;base64,{encoded}">
-        <div class="robot-caption">
-            VOICEGUARD AI ASSISTANT
+    <div class="mic-container">
+        <div class="mic-glow"></div>
+        <div class="mic-head">
+            <div class="mic-grill"></div>
         </div>
+        <div class="mic-neck"></div>
+        <div class="mic-stand"></div>
+        <div class="mic-base"></div>
     </div>
-    """
-else:
-    robot_html = """
-    <div class="robot-stage">
-        <div class="ring"></div>
-        <div class="ring two"></div>
-        <div style="font-size:100px;z-index:2;">🎙️</div>
-        <div class="robot-caption">ADD ROBOT IMAGE TO YOUR REPOSITORY</div>
+
+    <div class="sound-wave wave-left">)))</div>
+    <div class="sound-wave wave-right">(((</div>
+
+    <div class="robot-caption">
+        VOICEGUARD · LISTENING SYSTEM
     </div>
-    """
+</div>
+
+<style>
+.mic-container {
+    position: relative;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    animation: floatMic 3s ease-in-out infinite;
+    filter: drop-shadow(0 0 25px #20cfff);
+}
+
+.mic-head {
+    width: 105px;
+    height: 155px;
+    border-radius: 55px;
+    background: linear-gradient(120deg, #ffffff, #9baebe 45%, #263e54);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    box-shadow: inset -9px -5px 15px #243d54;
+}
+
+.mic-grill {
+    width: 72px;
+    height: 100px;
+    border-radius: 40px;
+    background: repeating-linear-gradient(
+        0deg,
+        #18344d,
+        #18344d 3px,
+        #7eacc4 4px,
+        #7eacc4 5px
+    );
+    border: 3px solid #d5eaf5;
+}
+
+.mic-neck {
+    width: 25px;
+    height: 30px;
+    background: linear-gradient(90deg, #71899d, white, #344b60);
+}
+
+.mic-stand {
+    width: 9px;
+    height: 55px;
+    background: linear-gradient(90deg, #526b80, white, #526b80);
+}
+
+.mic-base {
+    width: 100px;
+    height: 13px;
+    border-radius: 50%;
+    background: linear-gradient(#e7f8ff, #52718b);
+    box-shadow: 0 0 20px #20cfff;
+}
+
+.sound-wave {
+    position: absolute;
+    top: 43%;
+    color: #41d9ff;
+    font-size: 48px;
+    letter-spacing: -12px;
+    text-shadow: 0 0 15px #21cfff;
+    animation: wavePulse 1.5s ease-in-out infinite;
+}
+
+.wave-left { left: 13%; }
+.wave-right { right: 13%; }
+
+@keyframes floatMic {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-18px); }
+}
+
+@keyframes wavePulse {
+    0%, 100% { opacity: 0.35; transform: scale(0.85); }
+    50% { opacity: 1; transform: scale(1.15); }
+}
+</style>
+"""
+
 
 
 # ---------------- HEADER ----------------
