@@ -5,12 +5,13 @@ import librosa
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import io
+import tempfile
+import os
 from datetime import datetime
 
-# =========================================================
+# =====================================================
 # PAGE SETTINGS
-# =========================================================
+# =====================================================
 
 st.set_page_config(
     page_title="VoiceGuard | AI Voice Verification",
@@ -18,9 +19,9 @@ st.set_page_config(
     layout="wide"
 )
 
-# =========================================================
+# =====================================================
 # SESSION STATE
-# =========================================================
+# =====================================================
 
 if "analysis_history" not in st.session_state:
     st.session_state.analysis_history = []
@@ -28,9 +29,12 @@ if "analysis_history" not in st.session_state:
 if "analysis_result" not in st.session_state:
     st.session_state.analysis_result = None
 
-# =========================================================
-# GLOBAL THEME
-# =========================================================
+if "analysis_file_name" not in st.session_state:
+    st.session_state.analysis_file_name = None
+
+# =====================================================
+# ORIGINAL VOICEGUARD THEME
+# =====================================================
 
 st.markdown("""
 <style>
@@ -78,10 +82,9 @@ div[data-testid="stMetric"] {
 </style>
 """, unsafe_allow_html=True)
 
-
-# =========================================================
-# ORIGINAL VOICEGUARD HERO DESIGN
-# =========================================================
+# =====================================================
+# ORIGINAL ROBOT HERO DESIGN
+# =====================================================
 
 hero_html = """
 <!DOCTYPE html>
@@ -201,6 +204,7 @@ body {
     border-radius: 50%;
     inset: 15px;
 }
+
 .orb:after {
     inset: 28px;
     border-color: rgba(73,159,190,.4);
@@ -228,6 +232,7 @@ body {
     border: 2px solid rgba(255,255,255,.85);
     border-radius: 48%;
 }
+
 .brain:after {
     inset: 20px 42px;
     border-color: rgba(255,255,255,.75);
@@ -275,6 +280,7 @@ body {
     background: #a4f4ff;
     box-shadow: 0 0 9px #9af5ff;
 }
+
 .eye.left { left: 20px; }
 .eye.right { right: 20px; }
 
@@ -384,6 +390,7 @@ body {
     border-right: 1px solid #9bc9d9;
     opacity: .7;
 }
+
 .circuit.one { right: 0; top: 180px; }
 .circuit.two { left: 0; bottom: 65px; transform: rotate(180deg); }
 
@@ -400,6 +407,7 @@ body {
     0%,100% { transform: translateY(0); }
     50% { transform: translateY(-12px); }
 }
+
 @keyframes pulse {
     0%,100% { opacity: .45; transform: scaleY(.8); }
     50% { opacity: 1; transform: scaleY(1.2); }
@@ -445,6 +453,7 @@ body {
         <div class="wave"></div>
         <div class="circuit one"></div>
         <div class="circuit two"></div>
+
         <div class="orb">
             <div class="brain"></div>
         </div>
@@ -463,6 +472,7 @@ body {
                 <div class="mic"></div>
             </div>
         </div>
+
         <div class="base"></div>
     </div>
 
@@ -474,10 +484,9 @@ body {
 
 components.html(hero_html, height=610, scrolling=False)
 
-
-# =========================================================
+# =====================================================
 # FEATURE STRIP
-# =========================================================
+# =====================================================
 
 st.markdown("""
 <div style="
@@ -492,12 +501,14 @@ padding:20px;border:1px solid #d7e2e9;border-radius:14px;">
 <b>Audio Input</b><br>
 <small>WAV and MP3 support</small>
 </div>
+
 <div style="flex:1;min-width:180px;background:#ffffff;
 padding:20px;border:1px solid #d7e2e9;border-radius:14px;">
 <div style="font-size:25px;">〰️</div>
 <b>Mel Spectrogram</b><br>
 <small>Audio feature analysis</small>
 </div>
+
 <div style="flex:1;min-width:180px;background:#ffffff;
 padding:20px;border:1px solid #d7e2e9;border-radius:14px;">
 <div style="font-size:25px;">🧠</div>
@@ -507,19 +518,26 @@ padding:20px;border:1px solid #d7e2e9;border-radius:14px;">
 </div>
 """, unsafe_allow_html=True)
 
-
-# =========================================================
-# AUDIO UPLOAD
-# =========================================================
+# =====================================================
+# AUDIO UPLOAD SECTION
+# =====================================================
 
 st.markdown("---")
 
 st.markdown("""
-<div style="background:white;border:1px solid #d6e0e8;
-border-radius:16px;padding:20px;">
+<div style="
+background:white;
+border:1px solid #d6e0e8;
+border-radius:16px;
+padding:20px;
+">
 <div style="color:#477e9d;font-size:11px;
-letter-spacing:2px;font-weight:bold;">VOICE ANALYSIS</div>
-<h2 style="color:#101b2b;margin:8px 0;">Upload Your Audio</h2>
+letter-spacing:2px;font-weight:bold;">
+VOICE ANALYSIS
+</div>
+<h2 style="color:#101b2b;margin:8px 0;">
+Upload Your Audio
+</h2>
 <p style="color:#607487;">
 Upload a WAV or MP3 recording to inspect its audio
 characteristics and generate an analysis report.
@@ -533,20 +551,39 @@ uploaded_file = st.file_uploader(
     key="voiceguard_audio"
 )
 
-# =========================================================
-# ANALYSIS FUNCTION
-# =========================================================
+# =====================================================
+# AUDIO INSPECTION FUNCTION
+# =====================================================
 
-def inspect_audio(audio_bytes):
+def inspect_audio(audio_bytes, file_name):
 
-    audio_buffer = io.BytesIO(audio_bytes)
+    suffix = os.path.splitext(file_name)[1].lower()
 
-    # Load audio and resample to 16 kHz
-    signal, sample_rate = librosa.load(
-        audio_buffer,
-        sr=16000,
-        mono=True
-    )
+    if suffix not in [".wav", ".mp3"]:
+        suffix = ".wav"
+
+    temp_path = None
+
+    try:
+        # Save temporary audio file for librosa
+        with tempfile.NamedTemporaryFile(
+            suffix=suffix,
+            delete=False
+        ) as temp_file:
+
+            temp_file.write(audio_bytes)
+            temp_path = temp_file.name
+
+        # Load audio and convert to mono, 16 kHz
+        signal, sample_rate = librosa.load(
+            temp_path,
+            sr=16000,
+            mono=True
+        )
+
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 
     if len(signal) == 0:
         raise ValueError("The uploaded audio is empty.")
@@ -555,6 +592,7 @@ def inspect_audio(audio_bytes):
 
     # Audio measurements
     rms = float(np.sqrt(np.mean(signal ** 2)))
+
     peak = float(np.max(np.abs(signal)))
 
     zero_crossing = float(np.mean(
@@ -582,7 +620,7 @@ def inspect_audio(audio_bytes):
         ref=np.max
     )
 
-    result = {
+    return {
         "signal": signal,
         "sample_rate": sample_rate,
         "duration": duration,
@@ -594,25 +632,28 @@ def inspect_audio(audio_bytes):
         "mel_db": mel_db
     }
 
-    return result
 
-
-# =========================================================
-# ANALYSE BUTTON AND CURRENT STATUS
-# =========================================================
+# =====================================================
+# UPLOADED AUDIO AND ANALYSE BUTTON
+# =====================================================
 
 if uploaded_file is not None:
 
     st.success("Audio uploaded successfully!")
+
     st.audio(uploaded_file.getvalue())
 
     st.write("**File name:**", uploaded_file.name)
+
     st.write(
         "**File size:**",
         f"{uploaded_file.size / 1024:.2f} KB"
     )
 
-    if st.button("🔍 Analyse Audio", key="analyse_button"):
+    if st.button(
+        "🔍 Analyse Audio",
+        key="analyse_button"
+    ):
 
         try:
             with st.status(
@@ -632,7 +673,10 @@ if uploaded_file is not None:
                 st.write("Generating Mel spectrogram...")
                 progress.progress(80)
 
-                result = inspect_audio(uploaded_file.getvalue())
+                result = inspect_audio(
+                    uploaded_file.getvalue(),
+                    uploaded_file.name
+                )
 
                 st.write("Preparing inspection report...")
                 progress.progress(100)
@@ -643,7 +687,11 @@ if uploaded_file is not None:
                     expanded=False
                 )
 
-            # Save current analysis
+            # Save analysis result
+            st.session_state.analysis_result = result
+            st.session_state.analysis_file_name = uploaded_file.name
+
+            # Save history record
             report = {
                 "file_name": uploaded_file.name,
                 "date": datetime.now().strftime(
@@ -658,26 +706,30 @@ if uploaded_file is not None:
                 "classification": "Pending trained model integration"
             }
 
-            st.session_state.analysis_result = result
-
             st.session_state.analysis_history.insert(
                 0,
                 report
             )
 
-            st.success("Your audio inspection report is ready!")
+            st.success(
+                "Your audio inspection report is ready!"
+            )
 
         except Exception as error:
-            st.error(f"Could not analyse this audio: {error}")
+            st.error(
+                f"Could not analyse this audio: {error}"
+            )
 
 
-# =========================================================
+# =====================================================
 # ANALYSIS DASHBOARD
-# =========================================================
+# =====================================================
 
 if st.session_state.analysis_result is not None:
 
     result = st.session_state.analysis_result
+
+    file_name = st.session_state.analysis_file_name
 
     st.markdown("---")
     st.markdown("## 📊 Voice Analysis Dashboard")
@@ -686,12 +738,12 @@ if st.session_state.analysis_result is not None:
     st.markdown("### Current Inspection Status")
 
     st.info(
-        "Audio inspection completed. Signal measurements and "
-        "visual analysis are available. AI voice classification "
-        "is awaiting trained model integration."
+        "Audio inspection completed. Signal measurements "
+        "and visual analysis are available. AI voice "
+        "classification is awaiting trained model integration."
     )
 
-    # Metrics
+    # Audio metrics
     col1, col2, col3, col4 = st.columns(4)
 
     col1.metric(
@@ -716,14 +768,14 @@ if st.session_state.analysis_result is not None:
 
     st.markdown("---")
 
-    # =====================================================
+    # =================================================
     # WAVEFORM
-    # =====================================================
+    # =================================================
 
     st.markdown("### 1. Audio Waveform")
 
     st.write(
-        "The waveform displays how the audio signal's "
+        "This graph displays how the audio signal's "
         "amplitude changes over time."
     )
 
@@ -732,7 +784,6 @@ if st.session_state.analysis_result is not None:
 
     time_axis = np.arange(len(signal)) / sr
 
-    # Limit graph points for smooth rendering
     step = max(1, len(signal) // 12000)
 
     fig_wave, ax_wave = plt.subplots(figsize=(12, 3))
@@ -753,9 +804,9 @@ if st.session_state.analysis_result is not None:
 
     st.markdown("---")
 
-    # =====================================================
+    # =================================================
     # MEL SPECTROGRAM
-    # =====================================================
+    # =================================================
 
     st.markdown("### 2. Mel Spectrogram")
 
@@ -788,9 +839,9 @@ if st.session_state.analysis_result is not None:
 
     st.markdown("---")
 
-    # =====================================================
-    # AUDIO FEATURE GRAPHS
-    # =====================================================
+    # =================================================
+    # FEATURE GRAPHS
+    # =================================================
 
     st.markdown("### 3. Audio Feature Analysis")
 
@@ -830,35 +881,4 @@ if st.session_state.analysis_result is not None:
         ]
 
         fig_features, ax_features = plt.subplots(
-            figsize=(6, 3)
-        )
-
-        ax_features.bar(
-            feature_names,
-            feature_values
-        )
-
-        ax_features.set_title("Audio Feature Measurements")
-        ax_features.tick_params(axis="x", rotation=15)
-
-        st.pyplot(fig_features)
-        plt.close(fig_features)
-
-    st.markdown("---")
-
-    # =====================================================
-    # INSPECTION REPORT
-    # =====================================================
-
-    st.markdown("### 4. Inspection Report")
-
-    current_time = datetime.now().strftime(
-        "%d-%m-%Y %H:%M:%S"
-    )
-
-    report_text = f"""
-VOICEGUARD - AUDIO INSPECTION REPORT
-====================================
-
-File name: {uploaded_file.name if uploaded_file else "Previously analysed file"}
-Inspection date: {current_time}
+            figsize=(6,
