@@ -1,573 +1,454 @@
 
+     
 import streamlit as st
-import streamlit.components.v1 as components
 import librosa
-import librosa.display
-import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib.pyplot as plt
+import io
+import base64
 import time
-import html
-
-# ---------------- PAGE CONFIG ----------------
+import os
 
 st.set_page_config(
-    page_title="VOICEGUARD | AI Voice Cloning Detector",
-    page_icon="🛡️",
+    page_title="VOICEGUARD | AI Voice Detection",
+    page_icon="🎙️",
     layout="wide"
 )
 
-if "history" not in st.session_state:
-    st.session_state.history = []
-
-if "robot_state" not in st.session_state:
-    st.session_state.robot_state = "welcome"
-
-if "robot_message" not in st.session_state:
-    st.session_state.robot_message = (
-        "Hello! Welcome to VOICEGUARD. "
-        "I'm your voice analysis assistant!"
-    )
-
-# ---------------- ROBOT ASSISTANT ----------------
-
-def show_robot(state, message):
-
-    robot_styles = {
-        "welcome": "wave",
-        "listening": "listen",
-        "scanning": "scan",
-        "analysing": "think",
-        "complete": "happy",
-        "waiting": "neutral"
-    }
-
-    animation = robot_styles.get(state, "wave")
-    safe_message = html.escape(message)
-
-    st.markdown("""
-    <style>
-    .robot-card {
-        background: linear-gradient(140deg, #102C45, #091827);
-        border: 1px solid #17627C;
-        border-radius: 18px;
-        padding: 18px;
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        margin: 15px 0;
-        box-shadow: 0 8px 28px #00CFFF12;
-    }
-
-    .robot {
-        width: 78px;
-        height: 78px;
-        min-width: 78px;
-        border-radius: 25px;
-        background: linear-gradient(145deg, #DDFBFF, #6ACFE8);
-        border: 2px solid #35E6FF;
-        box-shadow: 0 0 18px #35E6FF55;
-        position: relative;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        animation: robotFloat 3s ease-in-out infinite;
-    }
-
-    .robot-face {
-        width: 53px;
-        height: 40px;
-        border-radius: 15px;
-        background: #09263A;
-        position: relative;
-    }
-
-    .eyes {
-        display: flex;
-        justify-content: center;
-        gap: 13px;
-        padding-top: 10px;
-    }
-
-    .eye {
-        width: 7px;
-        height: 10px;
-        border-radius: 50%;
-        background: #35E6FF;
-        box-shadow: 0 0 8px #35E6FF;
-    }
-
-    .mouth {
-        width: 15px;
-        height: 5px;
-        border-bottom: 2px solid #35E6FF;
-        border-radius: 50%;
-        margin: 4px auto;
-    }
-
-    .robot.wave {
-        animation: waveRobot 1.4s ease-in-out infinite;
-    }
-
-    .robot.listen {
-        animation: listenRobot 1.2s ease-in-out infinite;
-    }
-
-    .robot.scan {
-        animation: scanRobot 0.8s ease-in-out infinite;
-    }
-
-    .robot.think {
-        animation: thinkRobot 1.5s ease-in-out infinite;
-    }
-
-    .robot.happy {
-        animation: happyRobot 0.65s ease-in-out infinite;
-    }
-
-    .robot.neutral {
-        animation: robotFloat 3s ease-in-out infinite;
-    }
-
-    @keyframes robotFloat {
-        0%,100% { transform: translateY(0); }
-        50% { transform: translateY(-6px); }
-    }
-
-    @keyframes waveRobot {
-        0%,100% { transform: rotate(-5deg) translateY(0); }
-        50% { transform: rotate(7deg) translateY(-7px); }
-    }
-
-    @keyframes listenRobot {
-        0%,100% { transform: rotate(-8deg); }
-        50% { transform: rotate(8deg); }
-    }
-
-    @keyframes scanRobot {
-        0%,100% { transform: scale(1); }
-        50% { transform: scale(1.07); }
-    }
-
-    @keyframes thinkRobot {
-        0%,100% { transform: translateY(0) rotate(0); }
-        50% { transform: translateY(-5px) rotate(5deg); }
-    }
-
-    @keyframes happyRobot {
-        0%,100% { transform: translateY(0) rotate(-5deg); }
-        50% { transform: translateY(-10px) rotate(5deg); }
-    }
-
-    .robot-title {
-        color: #35E6FF;
-        font-size: 14px;
-        font-weight: bold;
-        margin-bottom: 5px;
-    }
-
-    .robot-message {
-        color: #EAF6FF;
-        font-size: 14px;
-        line-height: 1.5;
-    }
-
-    .robot-status {
-        color: #8CAFC5;
-        font-size: 11px;
-        margin-top: 6px;
-    }
-
-    @media (max-width: 500px) {
-        .robot-card { padding: 12px; gap: 12px; }
-        .robot { width: 65px; height: 65px; min-width: 65px; }
-        .robot-message { font-size: 12px; }
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    st.markdown(f"""
-    <div class="robot-card">
-        <div class="robot {animation}">
-            <div class="robot-face">
-                <div class="eyes">
-                    <div class="eye"></div>
-                    <div class="eye"></div>
-                </div>
-                <div class="mouth"></div>
-            </div>
-        </div>
-        <div>
-            <div class="robot-title">VOICEGUARD AI ASSISTANT</div>
-            <div class="robot-message">{safe_message}</div>
-            <div class="robot-status">● {state.upper()} MODE</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Speech button: browser support required
-    components.html(
-        f"""
-        <button onclick="speakMessage()"
-        style="
-            background:#12344D;
-            color:#35E6FF;
-            border:1px solid #17627C;
-            padding:9px 15px;
-            border-radius:9px;
-            cursor:pointer;
-            font-weight:bold;">
-            🔊 Speak message
-        </button>
-        <script>
-        function speakMessage() {{
-            if ('speechSynthesis' in window) {{
-                window.speechSynthesis.cancel();
-                const speech = new SpeechSynthesisUtterance(
-                    {repr(message)}
-                );
-                speech.rate = 0.95;
-                speech.pitch = 1.1;
-                window.speechSynthesis.speak(speech);
-            }}
-        }}
-        </script>
-        """,
-        height=48
-    )
-
-
-# ---------------- CYBERSECURITY DESIGN ----------------
+# ---------------- PAGE STYLE ----------------
 
 st.markdown("""
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif;
+}
+
 .stApp {
     background:
-        radial-gradient(circle at 15% 15%, #10314B 0%, transparent 35%),
-        radial-gradient(circle at 85% 70%, #102D47 0%, transparent 35%),
-        #050D19;
-    color: #EAF6FF;
+      radial-gradient(circle at 50% 25%, #183b63 0%, transparent 38%),
+      linear-gradient(135deg, #071426, #0b1c32 55%, #06101e);
+    color: #edf7ff;
 }
 
 .block-container {
-    max-width: 1150px;
-    padding-top: 2rem;
+    max-width: 1200px;
+    padding-top: 1.5rem;
     padding-bottom: 3rem;
 }
 
-.stMarkdown h1,
-.stMarkdown h2,
-.stMarkdown h3,
-.stMarkdown p,
-label {
-    color: #EAF6FF;
+header, footer {
+    visibility: hidden;
 }
 
-.hero {
-    background: linear-gradient(125deg, #102E49, #091827);
-    border: 1px solid #17627C;
-    border-radius: 22px;
-    padding: 28px;
-    margin-bottom: 20px;
-    box-shadow: 0 15px 45px #00BFFF18;
+.brand {
+    font-size: 25px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    color: white;
 }
 
-.hero h1 {
-    color: white !important;
-    font-size: clamp(27px, 5vw, 46px);
-    font-weight: 850;
+.brand span {
+    color: #36cfff;
 }
 
-.hero p {
-    color: #A9BED4 !important;
+.hero-title {
+    font-size: clamp(38px, 6vw, 72px);
+    font-weight: 800;
+    line-height: 1.04;
+    color: white;
+    letter-spacing: -3px;
+}
+
+.hero-title span {
+    color: #37cfff;
+}
+
+.subtext {
+    color: #a9bfd5;
+    font-size: 16px;
+    line-height: 1.8;
+}
+
+.eyebrow {
+    color: #42d5ff;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 3px;
 }
 
 .panel {
-    background: linear-gradient(145deg, #102A42, #0A1929);
-    border: 1px solid #1A526B;
-    border-radius: 17px;
-    padding: 20px;
-    margin-bottom: 15px;
-    transition: transform 0.3s, box-shadow 0.3s;
+    background: rgba(18, 43, 69, 0.82);
+    border: 1px solid rgba(70, 190, 255, 0.23);
+    border-radius: 18px;
+    padding: 24px;
+    box-shadow: 0 15px 45px rgba(0,0,0,0.22);
 }
 
-.panel:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 10px 25px #00CFFF22;
+.robot-stage {
+    position: relative;
+    min-height: 420px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: 25px;
+    background: radial-gradient(ellipse, #174c78 0%, #0c2945 48%, transparent 75%);
 }
 
-div[data-testid="stFileUploader"] {
-    background: #10243A;
-    border: 1px dashed #35CFEA;
+.robot {
+    width: min(100%, 390px);
+    max-height: 440px;
+    object-fit: contain;
+    position: relative;
+    z-index: 2;
+    animation: floatRobot 4s ease-in-out infinite;
+    filter: drop-shadow(0 0 25px rgba(34,190,255,0.35));
+}
+
+@keyframes floatRobot {
+    0%, 100% { transform: translateY(0) rotate(-1deg); }
+    50% { transform: translateY(-13px) rotate(1deg); }
+}
+
+.ring {
+    position: absolute;
+    width: 280px;
+    height: 280px;
+    border: 2px solid rgba(42,205,255,0.55);
+    border-radius: 50%;
+    box-shadow: 0 0 25px rgba(42,205,255,0.3);
+    animation: pulse 3s ease-out infinite;
+}
+
+.ring.two {
+    width: 350px;
+    height: 350px;
+    animation-delay: 1s;
+}
+
+@keyframes pulse {
+    0% { transform: scale(0.75); opacity: 0.8; }
+    100% { transform: scale(1.35); opacity: 0; }
+}
+
+.robot-caption {
+    position: absolute;
+    bottom: 18px;
+    z-index: 3;
+    color: #8feaff;
+    font-size: 12px;
+    letter-spacing: 2px;
+    text-align: center;
+}
+
+.status-card {
+    background: rgba(10, 30, 51, 0.9);
+    border: 1px solid rgba(57,194,255,0.35);
     border-radius: 14px;
     padding: 15px;
+    color: #dff8ff;
+    text-align: center;
+    margin-top: 12px;
 }
 
-div[data-testid="stFileUploader"] section,
-div[data-testid="stFileUploader"] small {
-    color: #EAF4FF !important;
+.metric {
+    background: rgba(22, 55, 84, 0.8);
+    border: 1px solid rgba(70,190,255,0.2);
+    padding: 18px;
+    border-radius: 14px;
+    margin-bottom: 10px;
 }
 
-div.stButton > button {
-    background: linear-gradient(100deg, #00AFCB, #35E6FF);
-    color: #06101D;
-    font-weight: bold;
-    border: none;
-    border-radius: 10px;
-    padding: 11px 24px;
+.metric-label {
+    color: #91abc3;
+    font-size: 12px;
 }
 
-div.stButton > button:hover {
-    box-shadow: 0 0 20px #35E6FF77;
-    color: #06101D;
+.metric-value {
+    font-size: 23px;
+    font-weight: 700;
+    color: #ffffff;
 }
 
-div[data-testid="stMetric"] {
-    background: #10243A;
-    border: 1px solid #1A526B;
-    padding: 15px;
+.stButton > button {
+    background: linear-gradient(90deg, #087cce, #28c5ef);
+    color: white;
+    border: 0;
     border-radius: 12px;
+    padding: 12px 25px;
+    font-weight: 700;
+    width: 100%;
+    transition: 0.3s;
 }
 
-div[data-testid="stMetricLabel"] {
-    color: #A9BED4 !important;
+.stButton > button:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 0 25px rgba(37,190,255,0.4);
+    color: white;
 }
 
-div[data-testid="stMetricValue"] {
-    color: #35E6FF !important;
+.stFileUploader {
+    background: rgba(16, 43, 68, 0.85);
+    border: 1px dashed #39bdf2;
+    border-radius: 15px;
+    padding: 12px;
+}
+
+h2, h3 {
+    color: #eaf7ff;
 }
 
 footer {
-    visibility: hidden;
+    color: #718da7;
 }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ---------------- WEBSITE HEADER ----------------
+# ---------------- ROBOT IMAGE ----------------
+
+image_path = "voiceguard_robot.png"
+
+robot_html = ""
+
+if os.path.exists(image_path):
+    with open(image_path, "rb") as image_file:
+        encoded = base64.b64encode(image_file.read()).decode()
+
+    robot_html = f"""
+    <div class="robot-stage">
+        <div class="ring"></div>
+        <div class="ring two"></div>
+        <img class="robot"
+             src="data:image/png;base64,{encoded}">
+        <div class="robot-caption">
+            VOICEGUARD AI ASSISTANT
+        </div>
+    </div>
+    """
+else:
+    robot_html = """
+    <div class="robot-stage">
+        <div class="ring"></div>
+        <div class="ring two"></div>
+        <div style="font-size:100px;z-index:2;">🎙️</div>
+        <div class="robot-caption">ADD ROBOT IMAGE TO YOUR REPOSITORY</div>
+    </div>
+    """
+
+
+# ---------------- HEADER ----------------
 
 st.markdown("""
-<div class="hero">
-<h2>🛡️ VOICEGUARD</h2>
-<h1>AI VOICE CLONING DETECTOR</h1>
-<p>Detect AI-generated voices and identify potential voice impersonation.</p>
-<p style="color:#35E6FF;">● AUDIO INTELLIGENCE SYSTEM</p>
+<div class="brand">◈ VOICE<span>GUARD</span></div>
+""", unsafe_allow_html=True)
+
+st.write("")
+
+# ---------------- HERO SECTION ----------------
+
+left, right = st.columns([1, 1.15], gap="large")
+
+with left:
+    st.markdown("""
+    <div style="padding-top:55px;">
+        <div class="eyebrow">AI VOICE CLONING DETECTOR</div>
+        <br>
+        <div class="hero-title">
+            Protect the<br>
+            Authentic <span>Voice.</span>
+        </div>
+        <br>
+        <p class="subtext">
+            Every voice tells a story. VOICEGUARD uses
+            AI-powered audio analysis to help identify
+            genuine and AI-generated voices.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div class="status-card">
+        ✦ Your voice deserves to be trusted.
+    </div>
+    """, unsafe_allow_html=True)
+
+with right:
+    st.markdown(robot_html, unsafe_allow_html=True)
+
+
+# ---------------- ROBOT WELCOME ----------------
+
+st.markdown("""
+<div class="status-card">
+    <b>🤖 Assistant:</b>
+    Welcome to VOICEGUARD! I'm ready to listen.
+    Upload an audio file and let's inspect its voice patterns.
 </div>
 """, unsafe_allow_html=True)
 
-
-# ---------------- WELCOME ASSISTANT ----------------
-
-st.markdown("### 🤖 MEET YOUR AI ASSISTANT")
-
-show_robot(
-    "welcome",
-    "Welcome to VOICEGUARD! We are a team of three developers building a project to help identify AI-generated and cloned voices. Let's inspect your audio together!"
-)
-
-with st.expander("Meet the developers"):
-    st.markdown("""
-    - **Anthony — Member 1:** Audio preparation and preprocessing.
-    - **Afan — Member 2:** Deep learning and detection model.
-    - **Abhishek — Member 3:** Website design and integration.
-    """)
+st.write("")
+st.divider()
 
 
-# ---------------- AUDIO INPUT ----------------
+# ---------------- AUDIO UPLOAD ----------------
 
-st.markdown("## 📡 AUDIO INPUT")
+st.markdown('<div class="eyebrow">01 / AUDIO INPUT</div>',
+            unsafe_allow_html=True)
+
+st.subheader("Upload your audio")
 
 st.markdown("""
-<div class="panel">
-<h3>Upload Audio for Analysis</h3>
-<p style="color:#A9BED4;">
-Supported formats: WAV and MP3
+<p class="subtext">
+    Give the assistant a voice to listen to.
+    Supported formats: WAV and MP3.
 </p>
-</div>
 """, unsafe_allow_html=True)
 
 uploaded_file = st.file_uploader(
-    "Choose your audio file",
-    type=["wav", "mp3"]
+    "Choose an audio file",
+    type=["wav", "mp3"],
+    help="Upload a WAV or MP3 audio file."
 )
 
-if uploaded_file:
+if uploaded_file is not None:
 
-    show_robot(
-        "listening",
-        "I have received your audio! I'm listening and getting ready to inspect it."
-    )
+    st.success("🎧 Audio received! The assistant is listening.")
 
-    st.success("Audio uploaded successfully!")
     st.audio(uploaded_file)
 
-    if st.button("⚡ ANALYZE AUDIO"):
+    # Load audio
+    try:
+        audio_bytes = uploaded_file.getvalue()
 
-        # Show scanning activity
-        show_robot(
-            "scanning",
-            "Starting the audio scan! I'm checking the signal before analysis."
+        audio, sample_rate = librosa.load(
+            io.BytesIO(audio_bytes),
+            sr=None,
+            mono=True
         )
 
-        time.sleep(1)
+        duration = len(audio) / sample_rate
+        peak = float(np.max(np.abs(audio)))
+        samples = len(audio)
 
-        # Show analysis activity
-        show_robot(
-            "analysing",
-            "I'm examining your audio waveform and Mel frequency patterns. Please wait!"
-        )
+        st.write("")
+        st.markdown('<div class="eyebrow">02 / AUDIO INSPECTION</div>',
+                    unsafe_allow_html=True)
 
-        try:
-            audio, sr = librosa.load(
-                uploaded_file,
-                sr=16000,
-                mono=True
-            )
+        st.subheader("Audio information")
 
-            duration = len(audio) / sr
-            peak = float(np.max(np.abs(audio)))
+        c1, c2, c3 = st.columns(3)
 
-            st.markdown("## 📊 AUDIO OVERVIEW")
-
-            col1, col2, col3 = st.columns(3)
-
-            col1.metric("DURATION", f"{duration:.2f} sec")
-            col2.metric("SAMPLE RATE", f"{sr} Hz")
-            col3.metric("PEAK AMPLITUDE", f"{peak:.3f}")
-
-            # ---------------- WAVEFORM ----------------
-
-            st.markdown("## 📈 AUDIO WAVEFORM")
-
-            fig, ax = plt.subplots(figsize=(12, 3))
-            fig.patch.set_facecolor("#10243A")
-            ax.set_facecolor("#10243A")
-
-            librosa.display.waveshow(
-                audio,
-                sr=sr,
-                ax=ax,
-                color="#35E6FF"
-            )
-
-            ax.set_xlabel("TIME", color="white")
-            ax.set_ylabel("AMPLITUDE", color="white")
-            ax.tick_params(colors="white")
-
-            for spine in ax.spines.values():
-                spine.set_color("#28718A")
-
-            ax.grid(color="#24445B", alpha=0.4)
-
-            st.pyplot(fig)
-            plt.close(fig)
-
-            # ---------------- MEL SPECTROGRAM ----------------
-
-            st.markdown("## 🌌 MEL SPECTROGRAM")
-
-            mel = librosa.feature.melspectrogram(
-                y=audio,
-                sr=sr,
-                n_fft=1024,
-                hop_length=256,
-                n_mels=64
-            )
-
-            mel_db = librosa.power_to_db(
-                mel,
-                ref=np.max
-            )
-
-            fig, ax = plt.subplots(figsize=(12, 4))
-            fig.patch.set_facecolor("#10243A")
-            ax.set_facecolor("#10243A")
-
-            image = librosa.display.specshow(
-                mel_db,
-                sr=sr,
-                hop_length=256,
-                x_axis="time",
-                y_axis="mel",
-                cmap="magma",
-                ax=ax
-            )
-
-            ax.set_title(
-                "Audio Frequency Visualization",
-                color="white"
-            )
-
-            ax.tick_params(colors="white")
-            fig.colorbar(image, ax=ax, format="%+2.0f dB")
-
-            st.pyplot(fig)
-            plt.close(fig)
-
-            # ---------------- COMPLETION ----------------
-
-            st.session_state.history.append({
-                "filename": uploaded_file.name,
-                "duration": round(duration, 2),
-                "sample_rate": sr
-            })
-
-            show_robot(
-                "complete",
-                "Audio inspection is complete! I've displayed the waveform and Mel spectrogram. The trained AI detection model still needs to be connected before I can classify this voice."
-            )
-
-            st.info(
-                "Audio inspection completed. "
-                "No genuine or AI-generated classification "
-                "has been made yet."
-            )
-
-        except Exception as e:
-            show_robot(
-                "waiting",
-                "Oops! I had trouble processing this audio. Please try another file."
-            )
-            st.error(f"Audio analysis failed: {e}")
-
-else:
-    show_robot(
-        "waiting",
-        "I'm ready! Upload a WAV or MP3 recording and I'll help inspect it."
-    )
-
-
-# ---------------- HISTORY ----------------
-
-st.divider()
-st.markdown("## 🕘 ANALYSIS HISTORY")
-
-if st.session_state.history:
-
-    for item in reversed(st.session_state.history):
-        st.markdown(
-            f"""
-            <div class="panel">
-                <b>🎵 {html.escape(item['filename'])}</b><br>
-                <span style="color:#A9BED4;">
-                    Duration: {item['duration']} sec |
-                    Sample rate: {item['sample_rate']} Hz
-                </span>
+        with c1:
+            st.markdown(f"""
+            <div class="metric">
+                <div class="metric-label">DURATION</div>
+                <div class="metric-value">{duration:.2f}s</div>
             </div>
-            """,
+            """, unsafe_allow_html=True)
+
+        with c2:
+            st.markdown(f"""
+            <div class="metric">
+                <div class="metric-label">SAMPLE RATE</div>
+                <div class="metric-value">{sample_rate} Hz</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with c3:
+            st.markdown(f"""
+            <div class="metric">
+                <div class="metric-label">AUDIO SAMPLES</div>
+                <div class="metric-value">{samples:,}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.write("")
+        st.subheader("Audio waveform")
+
+        fig, ax = plt.subplots(figsize=(12, 3))
+        time_axis = np.arange(len(audio)) / sample_rate
+
+        ax.plot(time_axis, audio, linewidth=0.45)
+        ax.set_xlabel("Time (seconds)")
+        ax.set_ylabel("Amplitude")
+        ax.set_facecolor("#102943")
+        fig.patch.set_facecolor("#102943")
+        ax.tick_params(colors="white")
+        ax.xaxis.label.set_color("white")
+        ax.yaxis.label.set_color("white")
+        ax.spines["bottom"].set_color("#5c7894")
+        ax.spines["left"].set_color("#5c7894")
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+        st.pyplot(fig)
+        plt.close(fig)
+
+        st.write("")
+
+        # ---------------- ANALYSIS ----------------
+
+        st.markdown(
+            '<div class="eyebrow">03 / VOICE ANALYSIS</div>',
             unsafe_allow_html=True
         )
 
-else:
-    st.caption("Your analysis history will appear here during this session.")
+        st.subheader("Ready to analyse")
+
+        if st.button("🔍  Analyse Audio", use_container_width=True):
+
+            status_area = st.empty()
+            progress = st.progress(0)
+
+            stages = [
+                ("🎧 Listening to your audio...", 25),
+                ("📡 Scanning voice patterns...", 50),
+                ("🧠 Analysing audio features...", 75),
+                ("✨ Preparing inspection summary...", 100)
+            ]
+
+            for message, percentage in stages:
+                status_area.markdown(
+                    f'<div class="status-card">{message}</div>',
+                    unsafe_allow_html=True
+                )
+                progress.progress(percentage)
+                time.sleep(1.2)
+
+            status_area.markdown("""
+            <div class="status-card">
+                ✅ Audio inspection completed!<br><br>
+                The audio has been loaded and inspected successfully.
+                The trained voice classification model is not
+                connected yet.
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.info(
+                "Model integration is the next step. "
+                "No genuine/AI classification has been made yet."
+            )
+
+    except Exception as error:
+        st.error(
+            "Unable to process this audio file. "
+            "Please try another WAV or MP3 file."
+        )
+        st.caption(str(error))
 
 
 # ---------------- FOOTER ----------------
 
+st.write("")
 st.divider()
 
 st.markdown("""
-<p style="text-align:center; color:#7893AA; font-size:13px;">
-🛡️ VOICEGUARD | AI VOICE CLONING DETECTION PROJECT
-</p>
+<div style="text-align:center;padding:25px;color:#829bb4;">
+    <b>VOICEGUARD</b><br>
+    AI Voice Cloning Detection Project<br><br>
+    Built with Python • PyTorch • Streamlit
+</div>
 """, unsafe_allow_html=True)
-            
