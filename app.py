@@ -117,24 +117,32 @@ footer {
 """, unsafe_allow_html=True)
 
 
+
 # ---------------- WEBSITE HEADER ----------------
 
 st.markdown("""
 <div class="hero">
     <h2>🛡️ VOICEGUARD</h2>
-
-    <h1>AI VOICE CLONING DETECTOR</h1>
-
-    <p>
-        Detect AI-generated voices and identify
-        potential voice impersonation.
-    </p>
-
-    <p style="color:#35E6FF !important;">
-        ● AUDIO ANALYSIS SYSTEM
-    </p>
 </div>
 """, unsafe_allow_html=True)
+
+st.markdown(
+    "<h1 style='color:#FFFFFF;'>AI VOICE CLONING DETECTOR</h1>",
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    "<p style='color:#A9BED4;'>"
+    "Detect AI-generated voices and identify "
+    "potential voice impersonation."
+    "</p>",
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    "<p style='color:#35E6FF;'>● AUDIO ANALYSIS SYSTEM</p>",
+    unsafe_allow_html=True
+)
 
 
 # ---------------- AUDIO UPLOAD ----------------
