@@ -1,3 +1,4 @@
+
 import numpy as np
 import librosa
 
@@ -12,13 +13,24 @@ def preprocess_audio(audio, original_sr):
     and crop or pad it to 4 seconds.
     """
 
+    if original_sr <= 0:
+        raise ValueError("Sample rate must be positive.")
+
     audio = np.asarray(audio, dtype=np.float32)
 
-    
+    # Check audio dimensions
     if audio.ndim == 2:
-        audio = np.mean(audio, axis=0)
 
-    
+        # Convert stereo to mono
+        if audio.shape[0] <= 8:
+            audio = np.mean(audio, axis=0)
+        else:
+            audio = np.mean(audio, axis=1)
+
+    elif audio.ndim != 1:
+        raise ValueError("Audio must be mono or stereo.")
+
+    # Resample audio
     if original_sr != SAMPLE_RATE:
         audio = librosa.resample(
             audio,
@@ -26,7 +38,7 @@ def preprocess_audio(audio, original_sr):
             target_sr=SAMPLE_RATE
         )
 
-    
+    # Crop or pad to 4 seconds
     if len(audio) > N_SAMPLES:
         audio = audio[:N_SAMPLES]
 
@@ -42,8 +54,14 @@ def preprocess_audio(audio, original_sr):
 def generate_mel_spectrogram(audio):
     """
     Generate normalized 64-band Mel spectrogram.
-    Compatible with Member 2's existing configuration.
     """
+
+    audio = np.asarray(audio, dtype=np.float32)
+
+    if audio.ndim != 1 or len(audio) != N_SAMPLES:
+        raise ValueError(
+            "Audio must be preprocessed to 4 seconds at 16 kHz."
+        )
 
     mel = librosa.feature.melspectrogram(
         y=audio,
