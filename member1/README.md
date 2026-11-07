@@ -21,7 +21,7 @@ Processed audio features will be compatible with Member 2's PyTorch CNN model.
 ## Important
 Large datasets and model files must not be uploaded directly to GitHub.
 
-##update
+## update
 
 ## Testing and Verification
 
