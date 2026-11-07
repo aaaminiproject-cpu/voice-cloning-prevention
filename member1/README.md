@@ -20,3 +20,33 @@ Processed audio features will be compatible with Member 2's PyTorch CNN model.
 
 ## Important
 Large datasets and model files must not be uploaded directly to GitHub.
+
+##update
+
+## Testing and Verification
+
+Member 1 preprocessing has been tested for:
+
+- Mono audio input
+- Stereo audio (channel-first and channel-last)
+- Resampling to 16 kHz
+- Cropping and padding to 4 seconds
+- Mel spectrogram generation
+- Silent audio input
+- Invalid input handling
+- Label mapping
+
+### Expected output shapes
+
+- Preprocessed waveform: `(64000,)`
+- Mel spectrogram: `(64, 251)`
+
+### Mel spectrogram configuration
+
+- Sample rate: 16,000 Hz
+- Duration: 4 seconds
+- Mel bands: 64
+- FFT size: 1024
+- Hop length: 256
+- dB clipping range: -80 to 0
+- Normalization: divide by 80
