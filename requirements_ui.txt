@@ -1,7 +1,7 @@
-streamlit>=1.35
-plotly
-librosa
-numpy
-soundfile
-torch
-gdown
+streamlit>=1.36,<2
+numpy>=1.24
+librosa>=0.10.1
+soundfile>=0.12.1
+matplotlib>=3.7
+pandas>=2.0
+scikit-learn>=1.3
