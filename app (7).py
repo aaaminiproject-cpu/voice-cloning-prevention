@@ -432,3 +432,4 @@ else:
         with col:
             st.markdown('<div style="max-width:150px;margin:0 auto">' + bot({"Antony": "lab", "Afan": "tech", "Abhishek": "report"}[n]) + '</div>', unsafe_allow_html=True)
             card(f'<div class="eyebrow">{r_}</div><div class="big">{n}</div><p class="mute">{w}</p>')
+            f.update_xaxes(title="seconds", showgrid=False); f.update_yaxes(showgrid=False, zeroline=Fals
