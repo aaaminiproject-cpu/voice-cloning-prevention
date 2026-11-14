@@ -443,7 +443,6 @@ elif page == "Detect":
 
     # Existing result display
     if rec:
-    if rec:
         ss.cur = rec
         if ss.get("saved") != ss.get("main_id"): save(rec); ss.saved = ss.get("main_id")
         card(meta(rec)); status_box(rec["R"]); verdict(rec["R"])
