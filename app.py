@@ -2,7 +2,7 @@
 # ================= STYLE =================
 # VoxGuard styling + hero visual (Member 3)
 LIGHT = dict(bg="#f4f6fb", surf="#ffffff", surf2="#e9eef7", ink="#12151f", mute="#5d6678", accent="#2f5bff", vio="#8b5cf6", line="#dbe2ee")
-DARK = dict(bg="#0b0e17", surf="#141926", surf2="#1b2233", ink="#eef1f8", mute="#99a3b8", accent="#6b8cff", vio="#a78bfa", line="#273049")
+DARK = dict(bg="#07080d", surf="#10121a", surf2="#181b26", ink="#f3f1ea", mute="#9a9fb0", accent="#d4af6a", vio="#9b7bff", line="#232736")
 
 def css(t):
     v = "".join(f"--{k}:{x};" for k, x in t.items())
@@ -124,6 +124,16 @@ EXTRA_CSS = """<style>
 .stApp .band .mute{color:#b9c2e0!important}
 .stApp .band .hero-t span{color:transparent!important}
 @media(prefers-reduced-motion:reduce){.marq .track,.eq i,.mascot *{animation:none!important}}
+/* ---- Premium dark polish ---- */
+.stApp{background:radial-gradient(900px 500px at 85% -10%,color-mix(in srgb,var(--vio) 22%,transparent),transparent),radial-gradient(700px 400px at 0% 100%,color-mix(in srgb,var(--accent) 10%,transparent),transparent),var(--bg)!important}
+.stApp .card{background:linear-gradient(160deg,color-mix(in srgb,var(--surf) 92%,#fff 4%),var(--surf));border:1px solid var(--line);box-shadow:0 20px 50px -30px #000}
+.stApp .card:hover{border-color:color-mix(in srgb,var(--accent) 55%,var(--line))}
+.stApp .brand{letter-spacing:.34em}
+.stApp .stButton button{background:var(--surf2);border:1px solid var(--line)}
+.stApp .stButton button:hover{box-shadow:0 10px 30px -10px var(--accent)}
+.stApp [data-testid="stFileUploaderDropzone"]{background:var(--surf)!important}
+.stApp ::-webkit-scrollbar{width:8px;height:8px}
+.stApp ::-webkit-scrollbar-thumb{background:var(--line);border-radius:99px}
 </style>"""
 def css2(): return EXTRA_CSS
 
@@ -325,7 +335,7 @@ import numpy as np
 
 st.set_page_config(page_title="VoxGuard", page_icon="🎙️", layout="wide", initial_sidebar_state="collapsed")
 ss = st.session_state
-ss.setdefault("dark", False); ss.setdefault("cur", None); ss.setdefault("nav", "Home")
+ss.setdefault("dark", True); ss.setdefault("cur", None); ss.setdefault("nav", "Home")
 T = DARK if ss.dark else LIGHT
 st.markdown(css(T).rsplit("</style>", 1)[0].rstrip() + "\n" + css2().split("<style>", 1)[1].lstrip(), unsafe_allow_html=True)
 PAGES = ["Home", "Detect", "Results", "Analysis", "History", "Compare", "Technology", "About"]
