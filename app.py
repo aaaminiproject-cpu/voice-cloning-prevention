@@ -420,6 +420,29 @@ elif page == "Detect":
     model_choice = st.selectbox("Detection model", ["V1 — Baseline Model", "V2 — Advanced Model"], key="detection_model")
     selected_model = "V2" if model_choice.startswith("V2") else "V1"
     rec = uploader("main", model_version=selected_model)
+        # Microphone recording
+    st.markdown("### 🎙️ Record Using Microphone")
+
+    mic_audio = st.audio_input(
+        "Click to record your voice",
+        key="voxguard_microphone"
+    )
+
+    if mic_audio is not None:
+        st.success("Recording captured successfully!")
+
+        if st.button("Analyze Recorded Voice", key="analyze_mic"):
+            rec = process(mic_audio, model_version=selected_model)
+            ss.cur = rec
+
+            # Save microphone analysis to history
+            mic_id = hashlib.md5(mic_audio.getvalue()).hexdigest()
+            if ss.get("mic_saved") != mic_id:
+                save(rec)
+                ss.mic_saved = mic_id
+
+    # Existing result display
+    if rec:
     if rec:
         ss.cur = rec
         if ss.get("saved") != ss.get("main_id"): save(rec); ss.saved = ss.get("main_id")
