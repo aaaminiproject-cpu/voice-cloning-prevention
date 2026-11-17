@@ -126,11 +126,40 @@ N_MELS = int(os.getenv("VOXGUARD_N_MELS", "64"))  # Member 1 spec: 64 mel bands 
 HIST = Path(os.getenv("VOXGUARD_HISTORY", "voxguard_history.json"))
 
 def load_audio(data: bytes, name: str):
-    with tempfile.NamedTemporaryFile(suffix=Path(name).suffix, delete=False) as f:
-        f.write(data); p = f.name
-    try: y, sr = librosa.load(p, sr=SR, mono=True)
-    finally: os.remove(p)
-    return y, sr
+    """Decode an uploaded or microphone recording to finite mono 16 kHz audio."""
+    if not data:
+        raise ValueError("The audio recording is empty. Please record or upload it again.")
+
+    suffix = Path(name or "audio.wav").suffix.lower()
+    if not suffix or len(suffix) > 10:
+        suffix = ".wav"
+
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
+            f.write(data)
+            temp_path = f.name
+        y, sr = librosa.load(temp_path, sr=SR, mono=True)
+    except Exception as exc:
+        raise ValueError(
+            f"Could not decode this audio file ({type(exc).__name__}). "
+            "Try a WAV or MP3 recording."
+        ) from exc
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
+    y = np.asarray(y, dtype=np.float32).reshape(-1)
+    if y.size == 0:
+        raise ValueError("No audio samples were found in this recording.")
+    if not np.isfinite(y).all():
+        y = np.nan_to_num(y, nan=0.0, posinf=0.0, neginf=0.0)
+    if float(np.max(np.abs(y))) < 1e-7:
+        raise ValueError("The recording is silent or too quiet. Please record it again.")
+    return y, int(sr)
 
 def features(y, sr):
     S = librosa.power_to_db(librosa.feature.melspectrogram(y=y, sr=sr, n_mels=N_MELS), ref=np.max)
@@ -239,14 +268,36 @@ def run_model(data: bytes, name: str, audio=None, sr=SR, model_version="V1"):
                 label="genuine" if genuine >= spoof else "spoof", message="", model_version="V1")
 
 def _hist():
-    try: return json.loads(HIST.read_text())
-    except Exception: return []
-def hist_load(): return _hist()
+    try:
+        if not HIST.exists():
+            return []
+        value = json.loads(HIST.read_text(encoding="utf-8"))
+        return value if isinstance(value, list) else []
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
+def hist_load():
+    return _hist()
+
+
 def hist_add(rec):
-    h = _hist(); h.insert(0, rec); HIST.write_text(json.dumps(h[:100]))
+    h = _hist()
+    h.insert(0, rec)
+    HIST.parent.mkdir(parents=True, exist_ok=True)
+    temp = HIST.with_suffix(HIST.suffix + ".tmp")
+    temp.write_text(json.dumps(h[:100], ensure_ascii=False, indent=2), encoding="utf-8")
+    temp.replace(HIST)
+
+
 def hist_clear():
-    try: HIST.unlink()
-    except Exception: pass
+    try:
+        HIST.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        pass
+
 def now(): return time.strftime("%d %b %Y, %H:%M")
 
 # ---- Plotly figures (real data only) ----
@@ -271,6 +322,9 @@ def fig_spec(F, t=None):
 st.set_page_config(page_title="VoxGuard", page_icon="🎙️", layout="wide", initial_sidebar_state="collapsed")
 ss = st.session_state
 ss.setdefault("cur", None); ss.setdefault("nav", "Home")
+ss.setdefault("active_source", None)
+ss.setdefault("last_upload_seen", None)
+ss.setdefault("mic_saved", None)
 st.markdown(STYLE, unsafe_allow_html=True)
 PAGES = ["Home", "Detect", "Compare", "History", "About"]
 
@@ -281,21 +335,43 @@ def head(eye, title, sub=""):
 def plot(fig): st.plotly_chart(fig, use_container_width=True, config=dict(displayModeBar=False))
 def tile(k, v): return f'<div class="tile"><div class="tk">{k}</div><div class="tv">{v}</div></div>'
 
-def process(up, model_version="V1"):
-    """Decode audio, compute display features and run the selected detection model."""
-    data = up.getvalue(); bar = st.progress(0, "Decoding audio…")
-    y, sr = load_audio(data, up.name); bar.progress(35, "Computing spectral features…")
-    F = features(y, sr); bar.progress(65, "Running detection model…")
-    R = run_model(data, up.name, audio=y, sr=sr, model_version=model_version); bar.progress(100, "Done"); bar.empty()
-    return dict(name=up.name, size=len(data), ts=now(), F=F, R=R, model_version=model_version)
+def process(up, model_version="V1", source="upload"):
+    """Analyse the same decoded mono 16 kHz signal for upload and microphone input."""
+    data = up.getvalue()
+    name = getattr(up, "name", None) or ("microphone.wav" if source == "microphone" else "audio.wav")
+    if not data:
+        raise ValueError("No audio data was received.")
+
+    bar = st.progress(0, "Decoding audio…")
+    try:
+        y, sr = load_audio(data, name)
+        bar.progress(35, "Computing signal features…")
+        F = features(y, sr)
+        bar.progress(65, "Running detection model…")
+        R = run_model(data, name, audio=y, sr=sr, model_version=model_version)
+        bar.progress(100, "Done")
+        return dict(name=name, source=source, size=len(data), ts=now(), F=F, R=R,
+                    model_version=model_version)
+    finally:
+        bar.empty()
+
 
 def uploader(key, label="Drop a WAV or MP3 file", model_version="V1"):
     up = st.file_uploader(label, type=["wav", "mp3"], key=key)
-    if up is None: return None
-    c = (key, model_version, up.name, hashlib.md5(up.getvalue()).hexdigest())
-    if ss.get(key + "_id") != c:
-        ss[key + "_rec"] = process(up, model_version); ss[key + "_id"] = c
-    return ss[key + "_rec"]
+    if up is None:
+        return None
+
+    file_hash = hashlib.sha256(up.getvalue()).hexdigest()
+    cache_id = (key, model_version, up.name, file_hash)
+    if ss.get(key + "_id") != cache_id:
+        try:
+            ss[key + "_rec"] = process(up, model_version, source="upload")
+            ss[key + "_id"] = cache_id
+        except Exception as exc:
+            ss[key + "_rec"] = None
+            ss[key + "_id"] = cache_id
+            st.error(f"Audio analysis could not be completed: {exc}")
+    return ss.get(key + "_rec")
 
 def status_box(R):
     if R["status"] != "ok":
@@ -321,8 +397,11 @@ def verdict(R):
 
 def save(rec):
     R = rec["R"]
-    hist_add(dict(name=rec["name"], ts=rec["ts"], status=R["status"], duration=round(rec["F"]["duration"], 2),
-        label=R.get("label"), genuine=R.get("genuine"), spoof=R.get("spoof"), model=R.get("model_version", rec.get("model_version", "V1")), action=R.get("action"), note=R["message"]))
+    hist_add(dict(name=rec["name"], source=rec.get("source", "upload"), ts=rec["ts"],
+        status=R.get("status", "unknown"), duration=round(rec["F"]["duration"], 2),
+        label=R.get("label"), genuine=R.get("genuine"), spoof=R.get("spoof"),
+        model=R.get("model_version", rec.get("model_version", "V1")),
+        action=R.get("action"), note=R.get("message", "")))
 
 def go_to(page_name):
     """Button callback: runs before the nav widget is created on the next rerun."""
@@ -330,6 +409,7 @@ def go_to(page_name):
 
 def clear_cur():
     st.session_state["cur"] = None
+    st.session_state["active_source"] = "cleared"
 
 def show_result(rec):
     """One combined result section: verdict, signal profile, playback, charts and deep analysis."""
@@ -394,24 +474,47 @@ elif page == "Detect":
     head("Workspace", "Detect a voice", "Choose a model, add a recording, and read the full report right below. All in one place.")
     model_choice = st.selectbox("Detection model", ["V1 — Baseline Model", "V2 — Advanced Model"], key="detection_model")
     selected_model = "V2" if model_choice.startswith("V2") else "V1"
+
     cu, cm = st.columns(2)
     with cu:
         st.markdown("**Upload a file**")
         rec = uploader("main", model_version=selected_model)
+        # Only a newly uploaded file/model selection becomes the active result.
+        # This prevents the upload result from replacing a microphone result on reruns.
+        current_upload_id = ss.get("main_id")
+        if rec is not None and current_upload_id != ss.get("last_upload_seen"):
+            ss.cur = rec
+            ss.active_source = "upload"
+            ss.last_upload_seen = current_upload_id
+        if rec is not None and ss.get("active_source") == "microphone":
+            if st.button("Show uploaded-file result", key="show_upload_result", use_container_width=True):
+                ss.cur = rec
+                ss.active_source = "upload"
+
     with cm:
         st.markdown("**Or record with your microphone**")
-        mic_audio = st.audio_input("Click to record your voice", key="voxguard_microphone")
-        if mic_audio is not None and st.button("Analyze recorded voice", key="analyze_mic", use_container_width=True):
-            mrec = process(mic_audio, model_version=selected_model)
-            ss.cur = mrec
-            mic_id = hashlib.md5(mic_audio.getvalue()).hexdigest()
-            if ss.get("mic_saved") != mic_id:
-                save(mrec)
-                ss.mic_saved = mic_id
-    if rec:
+        mic_audio = st.audio_input("Click to record your voice", sample_rate=SR, key="voxguard_microphone")
+        if mic_audio is not None:
+            st.caption("Microphone audio is converted to mono 16 kHz before analysis, just like uploaded audio.")
+            if st.button("Analyze recorded voice", key="analyze_mic", use_container_width=True):
+                mic_hash = hashlib.sha256(mic_audio.getvalue()).hexdigest()
+                mic_id = (mic_hash, selected_model)
+                try:
+                    with st.spinner("Analysing microphone recording…"):
+                        mrec = process(mic_audio, model_version=selected_model, source="microphone")
+                    ss.cur = mrec
+                    ss.active_source = "microphone"
+                    if ss.get("mic_saved") != mic_id:
+                        save(mrec)
+                        ss.mic_saved = mic_id
+                    st.success("Microphone recording analysed.")
+                except Exception as exc:
+                    st.error(f"Microphone analysis failed: {exc}")
+
+    if rec is not None and ss.get("active_source") is None and ss.cur is None:
         ss.cur = rec
-        if ss.get("saved") != ss.get("main_id"): save(rec); ss.saved = ss.get("main_id")
-    st.write("")
+        ss.active_source = "upload"
+
     if ss.cur:
         show_result(ss.cur)
         st.button("Clear result", key="clear_cur", on_click=clear_cur)
@@ -443,9 +546,9 @@ elif page == "History":
         lab = {"genuine": "Genuine", "spoof": "AI / Spoof"}.get(r["label"], "No prediction")
         conf = f' · {pct(max(r["genuine"], r["spoof"]))}' if r.get("genuine") is not None else ""
         with st.expander(f'{r["name"]} · {r["ts"]} · {lab}{conf}'):
-            st.write(f'Status: **{r["status"]}** · Model {r.get("model", "V1")} · Duration {r["duration"]} s')
+            st.write(f'Status: **{r.get("status", "unknown")}** · Source {r.get("source", "upload")} · Model {r.get("model", "V1")} · Duration {r.get("duration", "?")} s')
             if r.get("genuine") is not None: st.write(f'Genuine {pct(r["genuine"])} · Spoof {pct(r["spoof"])}')
-            if r.get("note"): st.caption(r["note"])
+            if r.get("note"): st.caption(r.get("note", ""))
     if h and st.button("Clear history"): hist_clear(); st.rerun()
     st.caption("Stored in a local JSON file on the server. On shared hosting it may be visible to all visitors and reset on restart.")
 
