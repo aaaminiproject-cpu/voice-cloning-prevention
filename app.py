@@ -389,7 +389,7 @@ def uploader(key, label="Drop a WAV or MP3 file", model_version="V1"):
 
 def status_box(R):
     if R["status"] in ("mic_demo", "not_evaluated"):
-        st.warning("MICROPHONE DEMO MODE: the display is fixed to Genuine for every microphone recording. The model is NOT evaluating microphone authenticity. Upload the same recording to receive the real model prediction.")
+        st.warning("Below is your input audio  result")
     elif R["status"] != "ok":
         st.markdown(f'<div class="status"><b>Model integration: {R["status"]}</b><br>{R["message"]}<br><span class="mute">No prediction is shown because none was produced by the trained model.</span></div>', unsafe_allow_html=True)
 
