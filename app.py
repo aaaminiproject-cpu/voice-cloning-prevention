@@ -332,7 +332,13 @@ def pct(x): return f"{x*100:.1f}%"
 def card(html): st.markdown(f'<div class="card">{html}</div>', unsafe_allow_html=True)
 def head(eye, title, sub=""):
     st.markdown(f'<div class="eyebrow gold">{eye}</div><h2>{title}</h2><p class="mute">{sub}</p>', unsafe_allow_html=True)
-def plot(fig): st.plotly_chart(fig, use_container_width=True, config=dict(displayModeBar=False))
+def plot(fig, chart_key=None):
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        config=dict(displayModeBar=False),
+        key=chart_key
+    )
 def tile(k, v): return f'<div class="tile"><div class="tk">{k}</div><div class="tv">{v}</div></div>'
 
 def process(up, model_version="V1", source="upload", run_detection=True):
@@ -567,10 +573,11 @@ elif page == "Detect":
         card('<div class="eyebrow">Awaiting signal</div><div class="big">Add a voice clip to begin</div><p class="mute">VoxGuard decodes the audio, draws its Mel spectrogram and asks the trained CNN for a verdict. Your report appears here.</p>' + EQ
              + '<span class="pill">WAV</span><span class="pill">MP3</span><span class="pill">Microphone</span><span class="pill">Up to 100 MB</span>')
 
-elif page == "Compare":
+for idx, (col, rec) in enumerate(zip(st.columns(2), (A, B))):
     head("Side by side", "Compare two samples", "Compares model outputs and audio characteristics only. It does not identify speakers.")
     l, r = st.columns(2)
-    with l: A = uploader("cA", "Sample A")
+   plot(fig_wave(rec["F"], T), chart_key=f"compare_waveform_{idx}")
+plot(fig_mel(rec["F"], T), chart_key=f"compare_mel_{idx}")
     with r: B = uploader("cB", "Sample B")
     if A and B:
         for col, rec in zip(st.columns(2), (A, B)):
