@@ -210,7 +210,12 @@ def find_v2_checkpoint():
 # clean corpora often misread these as "spoof" (or the reverse). For source ==
 # "microphone" the audio is therefore conditioned, split into overlapping
 # windows, scored per window and combined robustly. Uploads are NOT changed.
-MIC_ADVANCED = os.getenv("VOXGUARD_MIC_ADVANCED", "1").lower() not in ("0", "false", "no")
+# VOXGUARD_MIC_MODE: "safe" (default) = original audio + light-cleaned copy, never rescaled/trimmed;
+#                    "advanced" = aggressive conditioning + windows; "off" = original behaviour exactly.
+MIC_MODE = os.getenv("VOXGUARD_MIC_MODE", "safe").lower()
+if MIC_MODE not in ("safe", "advanced", "off"): MIC_MODE = "safe"
+if os.getenv("VOXGUARD_MIC_ADVANCED", "1").lower() in ("0", "false", "no"): MIC_MODE = "off"
+MIC_ADVANCED = MIC_MODE != "off"
 SEG_SEC = float(os.getenv("VOXGUARD_SEG_SEC", "4.0"))      # window length (s)
 SEG_HOP = float(os.getenv("VOXGUARD_SEG_HOP", "2.0"))      # window hop (s)
 MAX_SEGS = int(os.getenv("VOXGUARD_MAX_SEGS", "8"))        # cap windows for speed
@@ -245,6 +250,29 @@ def condition_mic_audio(y, sr):
     if peak > 0.97:
         y = y * (0.97 / peak)
     return y.astype(np.float32)
+
+def light_condition(y, sr):
+    """Only removes DC offset and sub-70 Hz rumble. No trimming, no level change, no padding."""
+    y = np.nan_to_num(np.asarray(y, dtype=np.float32).reshape(-1))
+    y = y - float(np.mean(y))
+    if y.size > 2000:
+        try:
+            from scipy.signal import butter, sosfiltfilt
+            y = sosfiltfilt(butter(4, 70.0, btype="highpass", fs=sr, output="sos"), y).astype(np.float32)
+        except Exception:
+            pass
+    return np.clip(y, -1.0, 1.0).astype(np.float32)
+
+def safe_windows(y, sr):
+    """Plain 4 s windows of a long clip (no padding / no rescaling); [] for short clips."""
+    win, hop = int(4.0 * sr), int(2.0 * sr)
+    if len(y) < int(8.0 * sr):
+        return []
+    starts = list(range(0, len(y) - win + 1, hop))
+    segs = [y[s:s + win] for s in starts]
+    if len(segs) > 6:
+        segs = [segs[i] for i in np.linspace(0, len(segs) - 1, 6).round().astype(int)]
+    return segs
 
 def _wrap_pad(y, n):
     if len(y) >= n or len(y) == 0:
@@ -296,12 +324,13 @@ def mic_quality(y, sr):
 
 def run_model(data: bytes, name: str, audio=None, sr=SR, model_version="V1", source="upload"):
     """Run the selected model using its own architecture, preprocessing and weights.
-    Microphone input additionally uses the advanced conditioning + multi-window ensemble."""
+    Microphone input is scored on several views of the SAME recording and combined;
+    the untouched original recording is always one of the views."""
     bad = lambda status, message: dict(status=status, message=message, model_version=model_version)
     advanced = MIC_ADVANCED and source == "microphone"
 
     def prepare(audio, sr):
-        """Return (segments, quality, sample_rate) for the model."""
+        """Return (views, quality, sr); views = [(tag, audio_array, group)]."""
         if audio is None:
             audio, sr = load_audio(data, name)
         audio = np.nan_to_num(np.asarray(audio, dtype=np.float32).reshape(-1))
@@ -311,12 +340,32 @@ def run_model(data: bytes, name: str, audio=None, sr=SR, model_version="V1", sou
         if audio.size == 0 or float(np.max(np.abs(audio))) < 1e-7:
             raise ValueError("The decoded audio is silent or empty.")
         if not advanced:
-            return [audio], None, int(sr)
+            return [("original", audio, "full")], None, int(sr)
         quality = mic_quality(audio, sr)
-        return make_segments(condition_mic_audio(audio, sr), sr), quality, int(sr)
+        if MIC_MODE == "advanced":
+            segs = make_segments(condition_mic_audio(audio, sr), sr)
+            return [(f"window {i+1}", s, "win") for i, s in enumerate(segs)], quality, int(sr)
+        light = light_condition(audio, sr)
+        views = [("original (untouched)", audio, "full"), ("cleaned (DC + rumble removed)", light, "full")]
+        views += [(f"window {i+1}", s, "win") for i, s in enumerate(safe_windows(light, sr))]
+        return views, quality, int(sr)
 
-    def extras(n, spread, quality, g, s):
-        return dict(segments=n, spread=spread, quality=quality, advanced=advanced,
+    def combine(views, scores):
+        """scores: [(genuine, spoof)] aligned with views. Full-clip views count one each,
+        all windows together count as one view. Logit-space mean."""
+        groups = {}
+        for (tag, _a, grp), (g, s) in zip(views, scores):
+            groups.setdefault(grp if grp == "win" else tag, []).append(s)
+        sp = [aggregate_spoof(v)[0] if len(v) > 1 else v[0] for v in groups.values()]
+        spoof = aggregate_spoof(sp)[0] if len(sp) > 1 else sp[0]
+        if len(sp) > 1:
+            p = np.clip(np.asarray(sp), 1e-4, 1 - 1e-4); z = np.log(p / (1 - p)); spoof = float(1 / (1 + np.exp(-np.mean(z))))
+        spread = float(np.std([s for _, s in scores])) if len(scores) > 1 else 0.0
+        return 1.0 - spoof, spoof, spread
+
+    def extras(views, scores, spread, quality, g, s):
+        return dict(segments=len(views), spread=spread, quality=quality, advanced=advanced, mode=MIC_MODE,
+                    variants=[(v[0], float(sc[0]), float(sc[1])) for v, sc in zip(views, scores)],
                     uncertain=bool(advanced and max(g, s) < UNCERTAIN_BAND))
 
     if model_version == "V2":
@@ -331,27 +380,28 @@ def run_model(data: bytes, name: str, audio=None, sr=SR, model_version="V1", sou
             if cache_key not in _MODEL:
                 _MODEL[cache_key] = load_v2_model(ck, device=torch.device("cpu"))
             model, device, _checkpoint = _MODEL[cache_key]
-            segs, quality, sr = prepare(audio, sr)
-            results = []
-            for seg in segs:
-                d = voxguard_prevention_engine(seg, sr, model, device, source=source)
+            views, quality, sr = prepare(audio, sr)
+            decisions, scores = [], []
+            for _tag, arr, _grp in views:
+                d = voxguard_prevention_engine(arr, sr, model, device, source=source)
                 g, s = float(d["genuine_score"]) / 100.0, float(d["spoof_score"]) / 100.0
                 if not (0.0 <= g <= 1.0 and 0.0 <= s <= 1.0) or abs(g + s - 1.0) > 0.03:
                     return bad("error", "V2 returned invalid class scores.")
-                results.append((g, s, d))
-            if len(results) == 1:
-                genuine, spoof, decision = results[0]; spread = 0.0
+                decisions.append(d); scores.append((g, s))
+            if len(scores) == 1:
+                genuine, spoof = scores[0]; spread = 0.0; decision = decisions[0]
             else:
-                spoof, spread = aggregate_spoof([r[1] for r in results]); genuine = 1.0 - spoof
-                # Use the engine's own action/message from the window closest to the combined
-                # score (ties -> the more cautious action) so thresholds stay the engine's.
-                decision = sorted(results, key=lambda r: (abs(r[1] - spoof),
-                                  -_SEVERITY.get(str(r[2]["action"]).upper(), 2)))[0][2]
+                genuine, spoof, spread = combine(views, scores)
+                # Engine's own action/message from the view closest to the combined score
+                # (ties -> more cautious action), so the engine's thresholds stay in charge.
+                order = sorted(range(len(scores)), key=lambda i: (abs(scores[i][1] - spoof),
+                               -_SEVERITY.get(str(decisions[i]["action"]).upper(), 2)))
+                decision = decisions[order[0]]
             return dict(status="ok", genuine=genuine, spoof=spoof,
                         label="genuine" if genuine >= spoof else "spoof",
                         action=decision["action"], risk_status=decision["status"],
                         message=decision["message"], model_version="V2",
-                        **extras(len(results), spread, quality, genuine, spoof))
+                        **extras(views, scores, spread, quality, genuine, spoof))
         except Exception as e:
             return bad("error", f"V2 inference failed ({type(e).__name__}): {e}")
 
@@ -368,7 +418,6 @@ def run_model(data: bytes, name: str, audio=None, sr=SR, model_version="V1", sou
         return bad("error", f"V1 model failed to load ({type(e).__name__}): {e}")
 
     def predict_one(arr):
-        # Standard 16 kHz mono PCM_16 WAV: one consistent input format for mic and uploads.
         temp_path = None
         try:
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
@@ -387,17 +436,17 @@ def run_model(data: bytes, name: str, audio=None, sr=SR, model_version="V1", sou
         return g, s
 
     try:
-        segs, quality, sr = prepare(audio, sr)
-        scores = [predict_one(seg) for seg in segs]
+        views, quality, sr = prepare(audio, sr)
+        scores = [predict_one(arr) for _t, arr, _g in views]
     except Exception as e:
         return bad("error", f"V1 prediction failed ({type(e).__name__}): {e}")
     if len(scores) == 1:
         genuine, spoof = scores[0]; spread = 0.0
     else:
-        spoof, spread = aggregate_spoof([s for _, s in scores]); genuine = 1.0 - spoof
+        genuine, spoof, spread = combine(views, scores)
     return dict(status="ok", genuine=genuine, spoof=spoof,
                 label="genuine" if genuine >= spoof else "spoof", message="", model_version="V1",
-                **extras(len(scores), spread, quality, genuine, spoof))
+                **extras(views, scores, spread, quality, genuine, spoof))
 
 def _hist():
     try:
@@ -562,16 +611,21 @@ def quality_box(R):
     if R.get("status") != "ok" or not R.get("advanced"):
         return
     n, spread = R.get("segments", 1), R.get("spread", 0.0)
-    pills = f'<span class="pill">Mic-optimised analysis</span><span class="pill">{n} analysis window{"s" if n != 1 else ""}</span>'
+    pills = f'<span class="pill">Mic analysis · {n} view{"s" if n != 1 else ""}</span>'
     if n > 1:
-        pills += f'<span class="pill">Window agreement · {max(0.0, 1 - 2 * spread) * 100:.0f}%</span>'
+        pills += f'<span class="pill">View agreement · {max(0.0, 1 - 2 * spread) * 100:.0f}%</span>'
     st.markdown(pills, unsafe_allow_html=True)
     if R.get("uncertain"):
         st.warning("Low-confidence result: the model is close to undecided on this recording. Record again (4-10 s of continuous speech, quiet room, ~20 cm from the microphone) or upload a clean file.")
     elif n > 1 and spread > 0.30:
-        st.warning("The analysis windows disagree with each other, so this result is less reliable. Try a longer, cleaner recording.")
+        st.warning("The different views of this recording disagree with each other, so this result is less reliable. Try a longer, cleaner recording.")
     for w in (R.get("quality") or {}).get("warnings", []):
         st.info(w)
+    if R.get("variants"):
+        with st.expander("Scoring details (how each view of your recording was scored)"):
+            for tag, g, s in R["variants"]:
+                st.write(f"**{tag}** · Genuine {g*100:.1f}% · Spoof {s*100:.1f}%")
+            st.caption(f"Mode: {R.get('mode', 'safe')}. The final result combines these views. If 'original' is right and another view is wrong, tell the developer which one.")
 
 def show_result(rec):
     """One combined result section: verdict, signal profile, playback, charts and deep analysis."""
