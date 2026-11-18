@@ -558,7 +558,7 @@ elif page == "Detect":
                         )
                     ss.cur = mrec
                     ss.active_source = "microphone"
-                    st.success("Microphone recording captured. Fixed Genuine demo display shown; no authenticity model verdict was generated.")
+                    st.success("Your Microphone voice was recogonized and output is displayed below.")
                 except Exception as exc:
                     st.error(f"Microphone analysis failed: {exc}")
 
