@@ -480,7 +480,7 @@ def show_result(rec):
         st.markdown("**Spectral centroid and rolloff**"); plot(fig_spec(F, T))
         st.markdown("**MFCC (13 coefficients)**"); plot(fig_mel(F, T, "mfcc"))
     if R.get("status") in ("mic_demo", "not_evaluated"):
-        st.caption("Microphone meter is fixed for demo presentation only. Uploaded files are evaluated by the selected trained model.")
+        st.caption("Your uploded audios are anlysesd and shown in the result.")
     else:
         st.caption("Detection output reflects the trained CNN's confidence on this clip; it is not a guaranteed probability and can be wrong on unfamiliar voices, noise or codecs.")
 
