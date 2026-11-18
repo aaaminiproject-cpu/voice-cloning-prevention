@@ -1,96 +1,114 @@
-"""VoxGuard - single-file app. Run: streamlit run app.py"""
-import os, json, time, tempfile, hashlib
-from pathlib import Path
-import numpy as np, librosa
-import plotly.graph_objects as go
-import streamlit as st, streamlit.components.v1 as components
+# ---------- pages ----------
+if page == "Home":
+    l, r = st.columns([1.1, 1])
+    with l:
+        st.markdown('<div style="padding-top:2.2rem"><div class="eyebrow gold">AI voice authenticity</div><div class="hero-t">Trust every voice.<br><span class="gold"><i>Verify every signal.</i></span></div>'
+          '<p class="mute" style="max-width:34rem;font-size:1.05rem">Advanced AI-powered voice analysis designed to identify synthetic, cloned and potentially manipulated audio.</p></div>', unsafe_allow_html=True)
+        c1, c2 = st.columns(2)
+        c1.button("Start detecting  →", use_container_width=True, on_click=go_to, args=("Detect",))
+        c2.button("How it works", use_container_width=True, on_click=go_to, args=("About",))
+    with r: components.html(hero(T), height=450)
+    for col, (n, t, d) in zip(st.columns(3), [("16 kHz", "Mono analysis", "Every clip is resampled the same way before detection."), ("64", "Mel bands", "A time-frequency picture of the voice for the CNN."), ("2", "Detection models", "Baseline V1 and the advanced V2 with a prevention decision.")]):
+        with col: card(f'<div class="num">{n}</div><b>{t}</b><p class="mute">{d}</p>')
+    st.markdown('<div class="marq"><div class="track">' + MARQ + '</div></div>', unsafe_allow_html=True)
+    for col, (ic, t, d) in zip(st.columns(3), [("🎙️", "Upload or record", "Drop a WAV or MP3, or record straight from your microphone."),
+                                               ("🧠", "CNN-powered verdicts", "Genuine and spoof confidence straight from the trained PyTorch model."),
+                                               ("🛡️", "Honest by design", "If the model is offline you get a clear status, never an invented score.")]):
+        with col: card(f'<div class="ico">{ic}</div><b>{t}</b><p class="mute">{d}</p>')
+    st.markdown('<div class="band"><div class="eyebrow gold">Ready when you are</div><div class="hero-t" style="font-size:clamp(2rem,5vw,3.2rem)">Is that voice <span class="gold"><i>real?</i></span></div><p class="mute">Drop in a recording and let VoxGuard read the signal.</p></div>', unsafe_allow_html=True)
+    st.button("Start analysing  →", key="band_go", on_click=go_to, args=("Detect",))
 
-CONTACT = "aaa.miniproject@gmail.com"
+elif page == "Detect":
+    head("Workspace", "Detect a voice", "Choose a model, add a recording, and read the full report right below. All in one place.")
+    model_choice = st.selectbox("Detection model", ["V1 — Baseline Model", "V2 — Advanced Model"], key="detection_model")
+    selected_model = "V2" if model_choice.startswith("V2") else "V1"
 
-# ================= STYLE =================
-T = dict(ink="#f4f1ea", accent="#e2b866", vio="#8b7bff")
+    cu, cm = st.columns(2)
+    with cu:
+        st.markdown("**Upload a file**")
+        rec = uploader("main", model_version=selected_model)
+        # Only a newly uploaded file/model selection becomes the active result.
+        # This prevents the upload result from replacing a microphone result on reruns.
+        current_upload_id = ss.get("main_id")
+        if rec is not None and current_upload_id != ss.get("last_upload_seen"):
+            ss.cur = rec
+            ss.active_source = "upload"
+            ss.last_upload_seen = current_upload_id
+        if rec is not None and ss.get("active_source") == "microphone":
+            if st.button("Show uploaded-file result", key="show_upload_result", use_container_width=True):
+                ss.cur = rec
+                ss.active_source = "upload"
 
-STYLE = """<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap');
-:root{--bg:#06070b;--ink:#f4f1ea;--mute:#8d93a6;--gold:#e2b866;--gold2:#f6dc9b;--vio:#8b7bff;--good:#5ee0a0;--bad:#ff6b81;--line:rgba(255,255,255,.09);--glass:rgba(255,255,255,.04)}
-html,body,[class*="css"],.stApp{font-family:'Inter',sans-serif;color:var(--ink)}
-.stApp{background:radial-gradient(800px 520px at 8% -6%,rgba(139,123,255,.22),transparent 60%),radial-gradient(850px 520px at 96% 8%,rgba(226,184,102,.15),transparent 60%),radial-gradient(900px 600px at 50% 115%,rgba(139,123,255,.13),transparent 60%),var(--bg);background-attachment:fixed}
-#MainMenu,footer,header[data-testid="stHeader"]{visibility:hidden;height:0}
-.block-container{max-width:1160px;padding:1.2rem 1.2rem 3rem}
-h1,h2,h3{font-family:'Instrument Serif',serif!important;font-weight:400!important;letter-spacing:-.01em;color:var(--ink)}
-h2{font-size:2.8rem!important;line-height:1.05!important}
-.stApp p,.stApp li,.stApp label,.stApp summary,.stApp [data-testid="stMarkdownContainer"]{color:var(--ink)!important}
-.stApp [data-testid="stCaptionContainer"],.stApp [data-testid="stCaptionContainer"] *{color:var(--mute)!important}
-.stApp .mute{color:var(--mute)!important}
-.stApp a{color:var(--gold)!important;text-decoration:none}
-.brand{font-weight:600;letter-spacing:.38em;font-size:.95rem;padding-top:.7rem}
-.stApp .brand b,.stApp .eyebrow,.stApp .num{color:var(--gold)!important}
-.eyebrow{font-size:.72rem;letter-spacing:.26em;text-transform:uppercase;font-weight:600;margin-bottom:.35rem}
-.gold{background:linear-gradient(100deg,#f6dc9b,#e2b866 45%,#b88a3e);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent!important;color:transparent}
-.card{background:linear-gradient(155deg,rgba(255,255,255,.075),rgba(255,255,255,.02));border:1px solid var(--line);border-radius:26px;padding:1.4rem 1.5rem;margin-bottom:.9rem;backdrop-filter:blur(14px);box-shadow:0 30px 60px -42px #000,inset 0 1px 0 rgba(255,255,255,.07);animation:up .6s both;transition:transform .3s,border-color .3s,box-shadow .3s}
-.card:hover{transform:translateY(-3px);border-color:rgba(226,184,102,.45);box-shadow:0 26px 60px -34px rgba(226,184,102,.45)}
-.hero-t{font-family:'Instrument Serif',serif;font-size:clamp(2.8rem,7vw,5.2rem);line-height:1;margin:.4rem 0 1.1rem}
-.big{font-family:'Instrument Serif',serif;font-size:2.1rem;line-height:1.1}
-.num{font-family:'Instrument Serif',serif;font-size:2.4rem}
-.ico{font-size:1.8rem;margin-bottom:.3rem}
-.bar{height:8px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden;margin:.35rem 0 1rem}
-.bar i{display:block;height:100%;border-radius:99px;animation:grow 1s both}
-.bar i.g{background:linear-gradient(90deg,#2fbf85,var(--good))}
-.bar i.s{background:linear-gradient(90deg,#e0475f,var(--bad))}
-.pill{display:inline-block;padding:.28rem .85rem;border-radius:99px;background:rgba(255,255,255,.06);border:1px solid var(--line);font-size:.76rem;margin:.15rem .25rem .15rem 0}
-.status{border-left:4px solid var(--vio);background:rgba(255,255,255,.05);padding:1rem 1.2rem;border-radius:16px;margin-bottom:.9rem}
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.7rem;margin-top:.5rem}
-.tile{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:18px;padding:.8rem 1rem}
-.tk{color:var(--mute);font-size:.72rem;letter-spacing:.08em;text-transform:uppercase}
-.tv{font-family:'Instrument Serif',serif;font-size:1.7rem;line-height:1.2}
-.vrow{display:flex;gap:1.4rem;align-items:center;flex-wrap:wrap}
-.ring{width:150px;height:150px;flex:none}
-.ring .rg{animation:ringgrow 1.2s ease both}
-.ring .rt{font-family:'Instrument Serif',serif;font-size:30px;fill:var(--ink)}
-.ring .rl{font-size:9px;letter-spacing:.2em;fill:var(--mute);text-transform:uppercase}
-.flow{display:flex;gap:.8rem;flex-wrap:wrap}.step{flex:1;min-width:150px}
-.avatar{width:62px;height:62px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Instrument Serif',serif;font-size:1.7rem;color:#1a1304;background:linear-gradient(135deg,#f6dc9b,#e2b866 55%,#b88a3e);margin-bottom:.8rem}
-.cta{display:inline-block;padding:.65rem 1.5rem;border-radius:99px;background:linear-gradient(100deg,#f6dc9b,#e2b866);font-weight:600;transition:.25s}
-.stApp a.cta{color:#1a1304!important}
-.cta:hover{transform:translateY(-2px);box-shadow:0 14px 34px -12px var(--gold)}
-.foot{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.8rem;border-top:1px solid var(--line);margin-top:3rem;padding-top:1.4rem;font-size:.85rem}
-.foot .brand{padding-top:0;font-size:.8rem}
-div[data-testid="stRadio"]{display:flex;justify-content:flex-end}
-div[data-testid="stRadio"]>div{flex-direction:row;gap:.2rem;overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none;padding:.35rem;background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:99px;backdrop-filter:blur(12px);max-width:100%}
-div[data-testid="stRadio"] label{background:transparent;border:0;border-radius:99px;padding:.4rem 1.1rem;white-space:nowrap;cursor:pointer;transition:.25s;font-weight:500}
-div[data-testid="stRadio"] label:hover{background:rgba(255,255,255,.07)}
-div[data-testid="stRadio"] label:has(input:checked){background:linear-gradient(100deg,#f6dc9b,#e2b866)}
-div[data-testid="stRadio"] label>div:first-child{display:none}
-.stApp div[data-testid="stRadio"] label:has(input:checked),.stApp div[data-testid="stRadio"] label:has(input:checked) *{color:#1a1304!important}
-.stButton>button,.stDownloadButton>button{border-radius:99px;border:1px solid var(--line);background:rgba(255,255,255,.05);padding:.6rem 1.4rem;font-weight:500;transition:.25s;backdrop-filter:blur(10px)}
-.stApp .stButton button,.stApp .stButton button *{color:var(--ink)!important}
-.stButton>button:hover{background:linear-gradient(100deg,#f6dc9b,#e2b866);border-color:transparent;transform:translateY(-2px);box-shadow:0 14px 34px -14px var(--gold)}
-.stApp .stButton button:hover,.stApp .stButton button:hover *{color:#1a1304!important}
-div[data-testid="stFileUploader"] section{border:1.5px dashed rgba(226,184,102,.4);border-radius:26px;background:rgba(255,255,255,.03);padding:1.8rem 1rem;transition:.25s}
-div[data-testid="stFileUploader"] section:hover{border-color:var(--gold);background:rgba(226,184,102,.06)}
-.stApp [data-testid="stFileUploaderDropzone"] *{color:var(--mute)!important}
-.stApp [data-testid="stFileUploaderDropzone"] button{background:linear-gradient(100deg,#f6dc9b,#e2b866)!important;border-radius:99px!important;border:none!important}
-.stApp [data-testid="stFileUploaderDropzone"] button *{color:#1a1304!important}
-div[data-baseweb="select"]>div{background:rgba(255,255,255,.05)!important;border:1px solid var(--line)!important;border-radius:16px!important}
-[data-testid="stAudioInput"]>div{background:rgba(255,255,255,.04)!important;border:1px solid var(--line)!important;border-radius:22px!important}
-[data-testid="stExpander"] details{background:rgba(255,255,255,.03);border:1px solid var(--line)!important;border-radius:18px}
-.stProgress>div>div>div{background:linear-gradient(90deg,var(--gold),var(--vio))}
-.stApp [data-testid="stAlert"]{background:rgba(18,24,42,.92)!important;border:1px solid rgba(226,184,102,.35)!important;border-radius:18px!important}
-.stApp [data-testid="stAlert"] *{color:#fff!important}
-.stApp [data-testid="stAlert"] svg{fill:#fff!important}
-.marq{overflow:hidden;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:.7rem 0;margin:2rem 0;-webkit-mask-image:linear-gradient(90deg,transparent,#000 10%,#000 90%,transparent);mask-image:linear-gradient(90deg,transparent,#000 10%,#000 90%,transparent)}
-.marq .track{display:flex;gap:2.2rem;width:max-content;animation:scrollx 30s linear infinite}
-.marq span{font-family:'Instrument Serif',serif;font-size:1.7rem;white-space:nowrap}
-.marq span:nth-child(even){color:var(--gold)}
-.eq{display:flex;gap:4px;align-items:flex-end;height:46px;margin:.8rem 0}
-.eq i{width:6px;height:100%;border-radius:4px;background:linear-gradient(var(--gold),var(--vio));transform-origin:bottom;animation:eqb 1.2s ease-in-out infinite}
-.band{background:linear-gradient(120deg,#0d0f1c,#1d1b4b 60%,#3b2a8c);border:1px solid var(--line);border-radius:30px;padding:2.2rem 1.8rem;margin:1.6rem 0 .8rem}
-@keyframes up{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
-@keyframes grow{from{width:0}}
-@keyframes ringgrow{from{stroke-dasharray:0 400}}
-@keyframes scrollx{to{transform:translateX(-50%)}}
-@keyframes eqb{0%,100%{transform:scaleY(.15)}50%{transform:scaleY(1)}}
-.stApp ::-webkit-scrollbar{width:8px;height:8px}
-.stApp ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:99px}
-@media(max-width:640px){.block-container{padding:.8rem .8rem 3rem}h2{font-size:2rem!important}.card{padding:1.1rem}.step{min-width:100%}div[data-testid="stRadio"]{justify-content:flex-start}}
-@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+    with cm:
+        st.markdown("**Or record with your microphone**")
+        mic_audio = st.audio_input("Click to record your voice", sample_rate=SR, key="voxguard_microphone")
+        if mic_audio is not None:
+            st.caption("Microphone audio is converted to mono 16 kHz before analysis, just like uploaded audio.")
+            if st.button("Analyze recorded voice", key="analyze_mic", use_container_width=True):
+                mic_hash = hashlib.sha256(mic_audio.getvalue()).hexdigest()
+                mic_id = (mic_hash, selected_model)
+                try:
+                    with st.spinner("Analysing microphone recording…"):
+                        mrec = process(
+                            mic_audio,
+                            model_version=selected_model,
+                            source="microphone",
+                            run_detection=False,
+                        )
+                    ss.cur = mrec
+                    ss.active_source = "microphone"
+                    st.success("Microphone signal captured. No authenticity verdict was generated.")
+                except Exception as exc:
+                    st.error(f"Microphone analysis failed: {exc}")
+
+    if rec is not None and ss.get("active_source") is None and ss.cur is None:
+        ss.cur = rec
+        ss.active_source = "upload"
+
+    if ss.cur:
+        show_result(ss.cur)
+        st.button("Clear result", key="clear_cur", on_click=clear_cur)
+    else:
+        card('<div class="eyebrow">Awaiting signal</div><div class="big">Add a voice clip to begin</div><p class="mute">VoxGuard decodes the audio, draws its Mel spectrogram and asks the trained CNN for a verdict. Your report appears here.</p>' + EQ
+             + '<span class="pill">WAV</span><span class="pill">MP3</span><span class="pill">Microphone</span><span class="pill">Up to 100 MB</span>')
+
+elif page == "Compare":
+    head("Side by side", "Compare two samples", "Compares model outputs and audio characteristics only. It does not identify speakers.")
+    l, r = st.columns(2)
+    with l: A = uploader("cA", "Sample A")
+    with r: B = uploader("cB", "Sample B")
+    if A and B:
+        for col, rec in zip(st.columns(2), (A, B)):
+            with col:
+                card(meta(rec)); status_box(rec["R"]); verdict(rec["R"])
+                plot(fig_wave(rec["F"], T)); plot(fig_mel(rec["F"], T))
+                F = rec["F"]; st.caption(f'Centroid {np.mean(F["cent"]):.0f} Hz · Rolloff {np.mean(F["roll"]):.0f} Hz · Dominant {F["dom"]:.0f} Hz')
+    else:
+        card('<div class="eyebrow">Awaiting two samples</div><div class="big">Weigh two voices side by side</div><p class="mute">Upload Sample A and Sample B to compare spectrograms, predictions and audio characteristics.</p>' + EQ)
+
+elif page == "History":
+    head("Records", "Detection history")
+    h = hist_load()
+    if not h:
+        card('<div class="eyebrow">Nothing here yet</div><div class="big">No analyses yet</div>' + EQ)
+        st.button("Go to Detect  →", key="es_hist", on_click=go_to, args=("Detect",))
+    for r in h:
+        lab = {"genuine": "Genuine", "spoof": "AI / Spoof"}.get(r["label"], "No prediction")
+        conf = f' · {pct(max(r["genuine"], r["spoof"]))}' if r.get("genuine") is not None else ""
+        with st.expander(f'{r["name"]} · {r["ts"]} · {lab}{conf}'):
+            st.write(f'Status: **{r.get("status", "unknown")}** · Source {r.get("source", "upload")} · Model {r.get("model", "V1")} · Duration {r.get("duration", "?")} s')
+            if r.get("genuine") is not None: st.write(f'Genuine {pct(r["genuine"])} · Spoof {pct(r["spoof"])}')
+            if r.get("note"): st.caption(r.get("note", ""))
+    if h and st.button("Clear history"): hist_clear(); st.rerun()
+    st.caption("Stored in a local JSON file on the server. On shared hosting it may be visible to all visitors and reset on restart.")
+
+else:
+    head("About", "VoxGuard", "An AI-based voice authenticity detection system designed to help identify synthetic and cloned voice recordings.")
+    steps = [("Audio input", "WAV/MP3 decoded to mono."), ("Preprocessing", "Librosa resampling and normalisation."), ("Mel spectrogram", "Time-frequency image of the voice."),
+             ("CNN (PyTorch)", "Convolutional network trained by Member 2."), ("Classification", "Genuine vs spoof confidence.")]
+    st.markdown('<div class="flow">' + "".join(f'<div class="card step"><div class="num">{i+1}</div><b>{t}</b><p class="mute">{d}</p></div>' for i, (t, d) in enumerate(steps)) + '</div>', unsafe_allow_html=True)
+    for col, (n, r_, w) in zip(st.columns(3), [("Antony", "Member 1", "Audio Preprocessing"), ("Afan", "Member 2", "Deep Learning and Detection Model"), ("Abhishek", "Member 3", "Website Development, UI/UX and Integration")]):
+        with col: card(f'<div class="avatar">{n[0]}</div><div class="eyebrow">{r_}</div><div class="big">{n}</div><p class="mute">{w}</p>')
+    card(f'<div class="eyebrow">Contact</div><div class="big">Questions, feedback or collaboration?</div><p class="mute">Write to us and we will get back to you.</p><a class="cta" href="mailto:{CONTACT}">✉ {CONTACT}</a>')
+
+footer()
