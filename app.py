@@ -538,7 +538,7 @@ elif page == "Detect":
         st.markdown("**Or record with your microphone**")
         mic_audio = st.audio_input("Click to record your voice", sample_rate=SR, key="voxguard_microphone")
         if mic_audio is not None:
-            st.caption("Microphone recordings are shown with the fixed Genuine demo label. Upload the same recording below for the actual model prediction.")
+            st.caption("Please enter the audio using microphone for audio analysis")
             if st.button("Analyze recorded voice", key="analyze_mic", use_container_width=True):
                 mic_hash = hashlib.sha256(mic_audio.getvalue()).hexdigest()
                 mic_id = (mic_hash, selected_model)
